@@ -34,7 +34,7 @@ pub enum QueryMsg {
 }
 
 #[cw_serde]
-pub struct ConfigResponse(Config);
+pub struct ConfigResponse(pub Config);
 
 #[cw_serde]
-pub struct DistributeTargetsResponse(Vec<DistributeTarget>);
+pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);

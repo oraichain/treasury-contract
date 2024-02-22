@@ -1,5 +1,5 @@
 #[cfg(not(feature = "library"))]
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
 use crate::ContractError;
 use cosmwasm_std::{entry_point, to_binary, Addr, StdError, Uint128, WasmMsg};
@@ -181,8 +181,13 @@ fn execute_distribute(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
-    unimplemented!()
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => to_binary(&ConfigResponse(CONFIG.load(deps.storage)?)),
+        QueryMsg::DistributeTargets {} => to_binary(&DistributeTargetsResponse(
+            DISTRIBUTION_TARGETS.load(deps.storage)?,
+        )),
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ pub struct Config {
 #[cw_serde]
 pub struct DistributeTarget {
     pub addr: Addr,
-    pub weight: u32,
+    pub weight: u32, // total weight distribute target should be 100
     pub msg_hook: Option<Binary>,
 }
 

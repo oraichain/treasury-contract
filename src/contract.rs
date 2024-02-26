@@ -2,7 +2,7 @@
 use crate::msg::{ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
 use crate::ContractError;
-use cosmwasm_std::{entry_point, to_binary, Addr, StdError, Uint128, WasmMsg};
+use cosmwasm_std::{entry_point, to_binary, Addr, StdError, Storage, Uint128, WasmMsg};
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
@@ -142,8 +142,20 @@ fn execute_distribute(
         .checked_sub(amount_distribute)
         .map_err(|_| ContractError::ExceedContractBalance {})?;
 
-    let targets = DISTRIBUTION_TARGETS
-        .load(deps.storage)?
+    let messages = _load_target_messages(deps.storage, amount_distribute, config.distribute_token)?;
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "distribute")
+        .add_attribute("amount_distribute", amount_distribute.to_string()))
+}
+
+fn _load_target_messages(
+    storage: &mut dyn Storage,
+    amount_distribute: Uint128,
+    distribute_token: Addr,
+) -> Result<Vec<WasmMsg>, ContractError> {
+    DISTRIBUTION_TARGETS
+        .load(storage)?
         .iter()
         .map(|target| -> Result<WasmMsg, ContractError> {
             let transfer_amount = amount_distribute
@@ -153,7 +165,7 @@ fn execute_distribute(
 
             let msg = match target.clone().msg_hook {
                 None => WasmMsg::Execute {
-                    contract_addr: config.clone().distribute_token.into(),
+                    contract_addr: distribute_token.clone().into(),
                     msg: to_binary(&Cw20ExecuteMsg::Transfer {
                         recipient: target.clone().addr.into(),
                         amount: transfer_amount,
@@ -161,7 +173,7 @@ fn execute_distribute(
                     funds: vec![],
                 },
                 Some(msg_hook) => WasmMsg::Execute {
-                    contract_addr: config.clone().distribute_token.into(),
+                    contract_addr: distribute_token.clone().into(),
                     msg: to_binary(&Cw20ExecuteMsg::Send {
                         contract: target.clone().addr.into(),
                         amount: transfer_amount,
@@ -172,12 +184,7 @@ fn execute_distribute(
             };
             Ok(msg)
         })
-        .collect::<Result<Vec<WasmMsg>, ContractError>>()?;
-
-    Ok(Response::new()
-        .add_messages(targets)
-        .add_attribute("action", "distribute")
-        .add_attribute("amount_distribute", amount_distribute.to_string()))
+        .collect::<Result<Vec<WasmMsg>, ContractError>>()
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -191,4 +198,107 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::msg::{ConfigResponse, DistributeTargetsResponse, InstantiateMsg, QueryMsg};
+    use crate::state::{Config, DistributeTarget};
+    use cosmwasm_std::testing::{MockApi, MockQuerier, MockStorage};
+    use cosmwasm_std::{from_binary, OwnedDeps, Uint128};
+    use cosmwasm_std::{
+        testing::{mock_dependencies, mock_env, mock_info},
+        Addr,
+    };
+
+    use super::*;
+
+    fn _instantiate_deps() -> OwnedDeps<MockStorage, MockApi, MockQuerier> {
+        let mut deps = mock_dependencies();
+        let init_distribution_targets = vec![
+            DistributeTarget {
+                weight: 40,
+                addr: Addr::unchecked("target1"),
+                msg_hook: Some(to_binary(&"hook1").unwrap()),
+            },
+            DistributeTarget {
+                weight: 60,
+                addr: Addr::unchecked("target2"),
+                msg_hook: None,
+            },
+        ];
+
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked("owner"),
+            distribute_token: Addr::unchecked("distribute_token"),
+            init_distribution_targets: init_distribution_targets.clone(),
+        };
+
+        let mock_info = mock_info("owner", &[]);
+        let _res = instantiate(deps.as_mut(), mock_env(), mock_info, msg).unwrap();
+
+        let config_binary = query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap();
+        let config = from_binary::<ConfigResponse>(&config_binary).unwrap();
+
+        assert_eq!(
+            config,
+            ConfigResponse(Config {
+                owner: Addr::unchecked("owner"),
+                distribute_token: Addr::unchecked("distribute_token"),
+            })
+        );
+
+        let distribute_targets_binary =
+            query(deps.as_ref(), mock_env(), QueryMsg::DistributeTargets {}).unwrap();
+
+        let distribute_targets =
+            from_binary::<DistributeTargetsResponse>(&distribute_targets_binary).unwrap();
+
+        assert_eq!(
+            distribute_targets,
+            DistributeTargetsResponse(init_distribution_targets)
+        );
+
+        // send token
+
+        deps
+    }
+
+    #[test]
+    fn test_instantiate() {
+        let _deps = _instantiate_deps();
+    }
+
+    #[test]
+    fn test_load_target_messages() {
+        let mut deps = _instantiate_deps();
+
+        let amount_distribute = Uint128::from(1000u128);
+        let distribute_token = Addr::unchecked("distribute_token");
+
+        let messages =
+            _load_target_messages(&mut deps.storage, amount_distribute, distribute_token).unwrap();
+
+        assert_eq!(
+            messages,
+            vec![
+                WasmMsg::Execute {
+                    contract_addr: "distribute_token".into(),
+                    msg: to_binary(&Cw20ExecuteMsg::Send {
+                        contract: "target1".into(),
+                        amount: Uint128::from(400u64),
+                        msg: to_binary(&"hook1").unwrap()
+                    })
+                    .unwrap(),
+                    funds: vec![]
+                },
+                WasmMsg::Execute {
+                    contract_addr: "distribute_token".into(),
+                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                        recipient: "target2".into(),
+                        amount: Uint128::from(600u64)
+                    })
+                    .unwrap(),
+                    funds: vec![]
+                }
+            ]
+        )
+    }
+}

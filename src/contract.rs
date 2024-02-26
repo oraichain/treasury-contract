@@ -131,7 +131,7 @@ fn execute_distribute(
     }
 
     let balance: BalanceResponse = deps.querier.query_wasm_smart(
-        config.clone().distribute_token,
+        config.distribute_token.clone(),
         &cw20_base::msg::QueryMsg::Balance {
             address: env.contract.address.into(),
         },

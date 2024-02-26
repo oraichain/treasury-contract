@@ -38,3 +38,6 @@ pub struct ConfigResponse(pub Config);
 
 #[cw_serde]
 pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);
+
+#[cw_serde]
+pub struct MigrateMsg {}

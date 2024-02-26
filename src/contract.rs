@@ -1,3 +1,4 @@
+use crate::msg::MigrateMsg;
 #[cfg(not(feature = "library"))]
 use crate::msg::{ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
@@ -301,4 +302,9 @@ mod tests {
             ]
         )
     }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

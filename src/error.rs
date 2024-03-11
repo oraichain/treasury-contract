@@ -12,4 +12,6 @@ pub enum ContractError {
     ExceedContractBalance {},
     // Add any other custom errors you like here.
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
+    #[error("Router and approver are not set")]
+    RouterAndApproverNotSet {},
 }

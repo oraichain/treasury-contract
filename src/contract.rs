@@ -1,12 +1,19 @@
-use crate::msg::MigrateMsg;
 #[cfg(not(feature = "library"))]
-use crate::msg::{ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::helpers::asset_info_from_string;
+use crate::msg::{
+    CollectFeeRequirement, ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg,
+    MigrateMsg, QueryMsg,
+};
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
 use crate::ContractError;
-use cosmwasm_std::{entry_point, to_binary, Addr, StdError, Storage, Uint128, WasmMsg};
+use cosmwasm_std::{entry_point, to_binary, Addr, Coin, StdError, Storage, Uint128, WasmMsg};
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
+use oraiswap::asset::AssetInfo;
+use oraiswap::router::{
+    Cw20HookMsg as Cw20RouterHookMsg, ExecuteMsg as RouterExecuteMsg, SwapOperation,
+};
 use std::ops::Div;
 
 // version info for migration info
@@ -22,9 +29,25 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    // check valid addr in apporver
+    let approver = match msg.approver {
+        Some(addrs) => {
+            let valid_addrs = addrs
+                .iter()
+                .map(|addr| -> StdResult<Addr> { deps.api.addr_validate(addr.as_str()) })
+                .collect::<StdResult<Vec<Addr>>>()?;
+            Some(valid_addrs)
+        }
+        None => None,
+    };
     let config = Config {
         owner: deps.api.addr_validate(msg.owner.as_str())?,
         distribute_token: msg.distribute_token,
+        approver,
+        router: match msg.router {
+            Some(addr) => Some(deps.api.addr_validate(addr.as_str())?),
+            None => None,
+        },
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -56,13 +79,17 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             distribute_token,
-        } => execute_update_config(deps, env, info, owner, distribute_token),
+            approver,
+        } => execute_update_config(deps, env, info, owner, distribute_token, approver),
         ExecuteMsg::UpdateDistributeTarget { distribute_targets } => {
             execute_update_distribute_target(deps, env, info, distribute_targets)
         }
         ExecuteMsg::Distribute { amount_distribute } => {
             execute_distribute(deps, env, info, amount_distribute)
         }
+        ExecuteMsg::CollectFees {
+            collect_fee_requirements,
+        } => execute_collect_fees(deps, env, info, collect_fee_requirements),
     }
 }
 
@@ -72,6 +99,7 @@ fn execute_update_config(
     info: MessageInfo,
     owner: Option<Addr>,
     distribute_token: Option<Addr>,
+    approver: Option<Vec<Addr>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     if config.owner != info.sender {
@@ -81,6 +109,8 @@ fn execute_update_config(
     let new_config = Config {
         owner: owner.unwrap_or(config.owner),
         distribute_token: distribute_token.unwrap_or(config.distribute_token),
+        approver,
+        router: config.router,
     };
 
     CONFIG.save(deps.storage, &new_config)?;
@@ -148,6 +178,80 @@ fn execute_distribute(
         .add_messages(messages)
         .add_attribute("action", "distribute")
         .add_attribute("amount_distribute", amount_distribute.to_string()))
+}
+
+fn execute_collect_fees(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    collect_fee_requirements: Vec<CollectFeeRequirement>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut messages: Vec<WasmMsg> = vec![];
+    if config.approver.is_none() || config.router.is_none() {
+        return Err(ContractError::RouterAndApproverNotSet {});
+    }
+    let router_unwrap = config.router.unwrap();
+    let approver_unwrap = config.approver.unwrap();
+    for approver in approver_unwrap {
+        // build swap operations
+        messages = collect_fee_requirements
+            .iter()
+            .map(|requirement| -> StdResult<WasmMsg> {
+                let balance = requirement
+                    .asset
+                    .query_pool(&deps.querier, approver.clone())?;
+                let distribute_asset_info =
+                    asset_info_from_string(deps.api, config.distribute_token.clone().into());
+                // Assume that the owner approve infinite allowance to the contract
+                match &requirement.asset {
+                    AssetInfo::Token { contract_addr } => Ok(WasmMsg::Execute {
+                        contract_addr: contract_addr.clone().into(),
+                        msg: to_binary(&Cw20ExecuteMsg::SendFrom {
+                            owner: approver.to_string(),
+                            contract: router_unwrap.to_string(),
+                            amount: balance,
+                            msg: to_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
+                                operations: vec![SwapOperation::OraiSwap {
+                                    offer_asset_info: requirement.asset.clone(),
+                                    ask_asset_info: distribute_asset_info.clone(),
+                                }],
+                                minimum_receive: requirement.minimum_receive,
+                                to: Some(env.contract.address.clone().to_string()),
+                            })?,
+                        })?,
+                        funds: vec![],
+                    }),
+                    // handle native token
+                    AssetInfo::NativeToken { denom } => {
+                        let mut swap_amount = balance;
+                        if denom == "orai" {
+                            // Left 1 orai for transaction fee
+                            swap_amount = swap_amount
+                                .checked_sub(Uint128::from(1000000u128))
+                                .map_err(|err| StdError::Overflow { source: err })?;
+                        }
+                        Ok(WasmMsg::Execute {
+                            contract_addr: router_unwrap.to_string(),
+                            msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
+                                operations: vec![SwapOperation::OraiSwap {
+                                    offer_asset_info: requirement.asset.clone(),
+                                    ask_asset_info: distribute_asset_info,
+                                }],
+                                to: Some(env.contract.address.clone()),
+                                minimum_receive: requirement.minimum_receive,
+                            })?,
+                            funds: vec![Coin {
+                                denom: denom.clone(),
+                                amount: swap_amount,
+                            }],
+                        })
+                    }
+                }
+            })
+            .collect::<StdResult<Vec<WasmMsg>>>()?;
+    }
+    Ok(Response::new().add_messages(messages))
 }
 
 fn _load_target_messages(
@@ -230,6 +334,8 @@ mod tests {
             owner: Addr::unchecked("owner"),
             distribute_token: Addr::unchecked("distribute_token"),
             init_distribution_targets: init_distribution_targets.clone(),
+            approver: Some(vec![Addr::unchecked("approver1")]),
+            router: Some(Addr::unchecked("router")),
         };
 
         let mock_info = mock_info("owner", &[]);
@@ -243,6 +349,8 @@ mod tests {
             ConfigResponse(Config {
                 owner: Addr::unchecked("owner"),
                 distribute_token: Addr::unchecked("distribute_token"),
+                approver: Some(vec![Addr::unchecked("approver1")]),
+                router: Some(Addr::unchecked("router")),
             })
         );
 

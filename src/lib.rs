@@ -1,5 +1,6 @@
 pub mod contract;
 mod error;
+pub mod helpers;
 pub mod msg;
 #[cfg(any(test, feature = "tests"))]
 pub mod multitest;

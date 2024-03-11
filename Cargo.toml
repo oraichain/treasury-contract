@@ -47,5 +47,8 @@ cw-storage-plus = { version = "1.0.1" }
 schemars = "0.8.15"
 serde = { version = "1.0.189", default-features = false, features = ["derive"] }
 
+oraiswap = { git = "https://github.com/oraichain/oraiswap" }
+protobuf = "=3.2.0"
+
 [dev-dependencies]
 cw-multi-test = "0.16.2"

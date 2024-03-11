@@ -36,6 +36,8 @@ impl TreasuryContract {
                 owner: owner.clone(),
                 distribute_token: distribute_token.clone(),
                 init_distribution_targets,
+                approver: Some(vec![Addr::unchecked(admin.clone().unwrap())]),
+                router: Some(Addr::unchecked("router")),
             },
             &[],
             "treasury contract",

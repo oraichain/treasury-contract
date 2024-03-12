@@ -6,7 +6,12 @@ use crate::msg::{
 };
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
 use crate::ContractError;
-use cosmwasm_std::{entry_point, to_binary, Addr, Coin, StdError, Storage, Uint128, WasmMsg};
+use cosmos_sdk_proto::cosmos::authz::v1beta1::MsgExec;
+use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
+use cosmos_sdk_proto::cosmwasm::wasm::v1::MsgExecuteContract;
+use cosmos_sdk_proto::traits::MessageExt;
+use cosmos_sdk_proto::Any;
+use cosmwasm_std::{entry_point, to_binary, Addr, CosmosMsg, StdError, Storage, Uint128, WasmMsg};
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
@@ -187,7 +192,7 @@ fn execute_collect_fees(
     collect_fee_requirements: Vec<CollectFeeRequirement>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let mut messages: Vec<WasmMsg> = vec![];
+    let mut messages: Vec<CosmosMsg> = vec![];
     if config.approver.is_none() || config.router.is_none() {
         return Err(ContractError::RouterAndApproverNotSet {});
     }
@@ -197,7 +202,7 @@ fn execute_collect_fees(
         // build swap operations
         messages = collect_fee_requirements
             .iter()
-            .map(|requirement| -> StdResult<WasmMsg> {
+            .map(|requirement| -> StdResult<CosmosMsg> {
                 let balance = requirement
                     .asset
                     .query_pool(&deps.querier, approver.clone())?;
@@ -205,7 +210,7 @@ fn execute_collect_fees(
                     asset_info_from_string(deps.api, config.distribute_token.clone().into());
                 // Assume that the owner approve infinite allowance to the contract
                 match &requirement.asset {
-                    AssetInfo::Token { contract_addr } => Ok(WasmMsg::Execute {
+                    AssetInfo::Token { contract_addr } => Ok(CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: contract_addr.clone().into(),
                         msg: to_binary(&Cw20ExecuteMsg::SendFrom {
                             owner: approver.to_string(),
@@ -221,7 +226,7 @@ fn execute_collect_fees(
                             })?,
                         })?,
                         funds: vec![],
-                    }),
+                    })),
                     // handle native token
                     AssetInfo::NativeToken { denom } => {
                         let mut swap_amount = balance;
@@ -231,8 +236,9 @@ fn execute_collect_fees(
                                 .checked_sub(Uint128::from(1000000u128))
                                 .map_err(|err| StdError::Overflow { source: err })?;
                         }
-                        Ok(WasmMsg::Execute {
-                            contract_addr: router_unwrap.to_string(),
+                        let execute_swap_msg = MsgExecuteContract {
+                            contract: router_unwrap.to_string(),
+                            sender: env.contract.address.clone().to_string(),
                             msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                                 operations: vec![SwapOperation::OraiSwap {
                                     offer_asset_info: requirement.asset.clone(),
@@ -240,16 +246,33 @@ fn execute_collect_fees(
                                 }],
                                 to: Some(env.contract.address.clone()),
                                 minimum_receive: requirement.minimum_receive,
-                            })?,
+                            })?
+                            .to_vec(),
                             funds: vec![Coin {
                                 denom: denom.clone(),
-                                amount: swap_amount,
+                                amount: swap_amount.to_string(),
                             }],
+                        };
+
+                        Ok(CosmosMsg::Stargate {
+                            type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
+                            value: Binary(
+                                MsgExec {
+                                    grantee: env.contract.address.to_string(),
+                                    msgs: vec![Any {
+                                        type_url: "/cosmwasm.wasm.v1.MsgExecuteContract"
+                                            .to_string(),
+                                        value: execute_swap_msg.to_bytes().unwrap(),
+                                    }],
+                                }
+                                .to_bytes()
+                                .unwrap(),
+                            ),
                         })
                     }
                 }
             })
-            .collect::<StdResult<Vec<WasmMsg>>>()?;
+            .collect::<StdResult<Vec<CosmosMsg>>>()?;
     }
     Ok(Response::new().add_messages(messages))
 }

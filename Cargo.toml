@@ -46,7 +46,9 @@ cw20-base = { version = "1.0.1", features = ["library"] }
 cw-storage-plus = { version = "1.0.1" }
 schemars = "0.8.15"
 serde = { version = "1.0.189", default-features = false, features = ["derive"] }
-
+cosmos-sdk-proto = { version = "0.20.0", default-features = false, features = [
+  "cosmwasm",
+] }
 oraiswap = { git = "https://github.com/oraichain/oraiswap" }
 protobuf = "=3.2.0"
 

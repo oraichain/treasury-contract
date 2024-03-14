@@ -199,6 +199,8 @@ fn execute_collect_fees(
     }
     let router_unwrap = config.router.unwrap();
     let approver_unwrap = config.approver.unwrap();
+    // create a new variable for better code readability
+    let fees_receiver = env.contract.address;
     for approver in approver_unwrap {
         // build swap operations
         messages = collect_fee_requirements
@@ -223,8 +225,10 @@ fn execute_collect_fees(
                     return Ok(None);
                 }
 
-                let balance = offer_asset.query_pool(&deps.querier, approver.clone()).ok();
-                if balance.is_none() || balance.unwrap().is_zero() {
+                let balance = offer_asset
+                    .query_pool(&deps.querier, approver.clone())
+                    .unwrap_or_default();
+                if balance.is_zero() {
                     return Ok(None);
                 }
                 // Assume that the owner approve infinite allowance to the contract
@@ -236,8 +240,8 @@ fn execute_collect_fees(
                                 contract_addr: contract_addr.clone().into(),
                                 msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom {
                                     owner: approver.to_string(),
-                                    recipient: env.contract.address.to_string(),
-                                    amount: balance.unwrap(),
+                                    recipient: fees_receiver.to_string(),
+                                    amount: balance,
                                 })?,
                                 funds: vec![],
                             })]));
@@ -248,11 +252,11 @@ fn execute_collect_fees(
                             msg: to_json_binary(&Cw20ExecuteMsg::SendFrom {
                                 owner: approver.to_string(),
                                 contract: router_unwrap.to_string(),
-                                amount: balance.unwrap(),
+                                amount: balance,
                                 msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
                                     operations,
                                     minimum_receive: requirement.minimum_receive,
-                                    to: Some(env.contract.address.to_string()),
+                                    to: Some(fees_receiver.to_string()),
                                 })?,
                             })?,
                             funds: vec![],
@@ -260,54 +264,54 @@ fn execute_collect_fees(
                     }
                     // handle native token
                     AssetInfo::NativeToken { denom } => {
-                        let mut swap_amount = Some(balance.unwrap());
+                        let mut swap_amount = balance;
                         if denom == "orai" {
                             // Left 1 orai for transaction fee
                             swap_amount = swap_amount
-                                .unwrap()
                                 .checked_sub(Uint128::from(1000000u128))
-                                .ok();
+                                .unwrap_or_default();
                         }
 
-                        if swap_amount.is_none() || swap_amount.unwrap().is_zero() {
+                        if swap_amount.is_zero() {
                             return Ok(None);
                         }
 
-                        let mut send = MsgSend {
+                        let send = MsgSend {
                             from_address: approver.to_string(),
-                            to_address: env.contract.address.to_string(),
-                            ..MsgSend::default()
+                            to_address: fees_receiver.to_string(),
+                            amount: vec![Coin {
+                                denom: denom.clone(),
+                                amount: swap_amount.to_string(),
+                            }],
                         };
-                        let coin = Coin {
-                            denom: denom.clone(),
-                            amount: swap_amount.unwrap().to_string(),
-                        };
-                        send.amount = vec![coin];
+                        let send_any_result = send.to_any();
+                        if send_any_result.is_err() {
+                            return Ok(None);
+                        }
 
-                        let mut exec = MsgExec {
-                            grantee: env.contract.address.to_string(),
-                            ..MsgExec::default()
-                        };
-
-                        exec.msgs = vec![send.to_any().unwrap()];
-
-                        let exec_bytes: Vec<u8> = exec.encode_to_vec();
+                        let stargate_value = Binary::from(
+                            MsgExec {
+                                grantee: fees_receiver.to_string(),
+                                msgs: vec![send_any_result.unwrap()],
+                            }
+                            .encode_to_vec(),
+                        );
                         // transfer_from native token
                         let stargate = CosmosMsg::Stargate {
                             type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
-                            value: Binary::from(exec_bytes),
+                            value: stargate_value,
                         };
 
                         let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: router_unwrap.to_string(),
                             msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                                 operations: operations.clone(),
-                                to: Some(env.contract.address.clone()),
+                                to: Some(fees_receiver.clone()),
                                 minimum_receive: requirement.minimum_receive,
                             })?,
                             funds: vec![cosmwasm_std::Coin {
                                 denom: denom.clone(),
-                                amount: swap_amount.unwrap(),
+                                amount: swap_amount,
                             }],
                         });
 

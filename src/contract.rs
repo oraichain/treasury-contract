@@ -12,7 +12,7 @@ use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
 use cosmos_sdk_proto::traits::{Message, MessageExt};
 
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, BankMsg, CosmosMsg, StdError, Storage, Uint128, WasmMsg,
+    entry_point, to_json_binary, Addr, BankMsg, CosmosMsg, Decimal, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
@@ -21,7 +21,6 @@ use oraiswap::asset::AssetInfo;
 use oraiswap::router::{
     Cw20HookMsg as Cw20RouterHookMsg, ExecuteMsg as RouterExecuteMsg, SwapOperation,
 };
-use std::ops::Div;
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:tresury";

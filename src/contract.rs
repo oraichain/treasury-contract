@@ -7,11 +7,13 @@ use crate::msg::{
 use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
 use crate::ContractError;
 use cosmos_sdk_proto::cosmos::authz::v1beta1::MsgExec;
+use cosmos_sdk_proto::cosmos::bank::v1beta1::MsgSend;
 use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
-use cosmos_sdk_proto::cosmwasm::wasm::v1::MsgExecuteContract;
-use cosmos_sdk_proto::traits::MessageExt;
-use cosmos_sdk_proto::Any;
-use cosmwasm_std::{entry_point, to_binary, Addr, CosmosMsg, StdError, Storage, Uint128, WasmMsg};
+use cosmos_sdk_proto::traits::{Message, MessageExt};
+
+use cosmwasm_std::{
+    entry_point, to_binary, Addr, BankMsg, CosmosMsg, StdError, Storage, Uint128, WasmMsg,
+};
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
@@ -202,43 +204,74 @@ fn execute_collect_fees(
         // build swap operations
         messages = collect_fee_requirements
             .iter()
-            .map(|requirement| -> StdResult<CosmosMsg> {
+            .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
                 let balance = requirement
                     .asset
-                    .query_pool(&deps.querier, approver.clone())?;
+                    .query_pool(&deps.querier, approver.clone())
+                    .ok();
+                if balance.is_none() || balance.unwrap().is_zero() {
+                    return Ok(None);
+                }
                 let distribute_asset_info =
                     asset_info_from_string(deps.api, config.distribute_token.clone().into());
                 // Assume that the owner approve infinite allowance to the contract
                 match &requirement.asset {
-                    AssetInfo::Token { contract_addr } => Ok(CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: contract_addr.clone().into(),
-                        msg: to_binary(&Cw20ExecuteMsg::SendFrom {
-                            owner: approver.to_string(),
-                            contract: router_unwrap.to_string(),
-                            amount: balance,
-                            msg: to_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
-                                operations: vec![SwapOperation::OraiSwap {
-                                    offer_asset_info: requirement.asset.clone(),
-                                    ask_asset_info: distribute_asset_info.clone(),
-                                }],
-                                minimum_receive: requirement.minimum_receive,
-                                to: Some(env.contract.address.clone().to_string()),
+                    AssetInfo::Token { contract_addr } => {
+                        Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
+                            contract_addr: contract_addr.clone().into(),
+                            msg: to_binary(&Cw20ExecuteMsg::SendFrom {
+                                owner: approver.to_string(),
+                                contract: router_unwrap.to_string(),
+                                amount: balance.unwrap(),
+                                msg: to_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
+                                    operations: vec![SwapOperation::OraiSwap {
+                                        offer_asset_info: requirement.asset.clone(),
+                                        ask_asset_info: distribute_asset_info.clone(),
+                                    }],
+                                    minimum_receive: requirement.minimum_receive,
+                                    to: Some(env.contract.address.clone().to_string()),
+                                })?,
                             })?,
-                        })?,
-                        funds: vec![],
-                    })),
+                            funds: vec![],
+                        })]))
+                    }
                     // handle native token
                     AssetInfo::NativeToken { denom } => {
-                        let mut swap_amount = balance;
+                        let mut swap_amount = Some(balance.unwrap());
                         if denom == "orai" {
                             // Left 1 orai for transaction fee
                             swap_amount = swap_amount
+                                .unwrap()
                                 .checked_sub(Uint128::from(1000000u128))
-                                .map_err(|err| StdError::Overflow { source: err })?;
+                                .ok();
                         }
-                        let execute_swap_msg = MsgExecuteContract {
-                            contract: router_unwrap.to_string(),
-                            sender: env.contract.address.clone().to_string(),
+
+                        if swap_amount.is_none() || swap_amount.unwrap().is_zero() {
+                            return Ok(None);
+                        }
+
+                        let mut send = MsgSend::default();
+                        send.from_address = approver.to_string();
+                        send.to_address = env.contract.address.to_string();
+                        let coin = Coin {
+                            denom: denom.clone(),
+                            amount: swap_amount.unwrap().to_string(),
+                        };
+                        send.amount = vec![coin];
+
+                        let mut exec = MsgExec::default();
+                        exec.grantee = env.contract.address.to_string();
+                        exec.msgs = vec![send.to_any().unwrap()];
+
+                        let exec_bytes: Vec<u8> = exec.encode_to_vec();
+                        // transfer_from native token
+                        let stargate = CosmosMsg::Stargate {
+                            type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
+                            value: Binary::from(exec_bytes),
+                        };
+
+                        let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
+                            contract_addr: router_unwrap.to_string(),
                             msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                                 operations: vec![SwapOperation::OraiSwap {
                                     offer_asset_info: requirement.asset.clone(),
@@ -246,35 +279,32 @@ fn execute_collect_fees(
                                 }],
                                 to: Some(env.contract.address.clone()),
                                 minimum_receive: requirement.minimum_receive,
-                            })?
-                            .to_vec(),
-                            funds: vec![Coin {
+                            })?,
+                            funds: vec![cosmwasm_std::Coin {
                                 denom: denom.clone(),
-                                amount: swap_amount.to_string(),
+                                amount: swap_amount.unwrap(),
                             }],
-                        };
+                        });
 
-                        Ok(CosmosMsg::Stargate {
-                            type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
-                            value: Binary(
-                                MsgExec {
-                                    grantee: env.contract.address.to_string(),
-                                    msgs: vec![Any {
-                                        type_url: "/cosmwasm.wasm.v1.MsgExecuteContract"
-                                            .to_string(),
-                                        value: execute_swap_msg.to_bytes().unwrap(),
-                                    }],
-                                }
-                                .to_bytes()
-                                .unwrap(),
-                            ),
-                        })
+                        Ok(Some(vec![stargate, wasm_swap]))
                     }
                 }
             })
-            .collect::<StdResult<Vec<CosmosMsg>>>()?;
+            .filter_map(|msg| match msg {
+                Ok(Some(cosmos_msg)) => Some(cosmos_msg),
+                _ => None,
+            })
+            .flatten()
+            .collect::<Vec<CosmosMsg>>();
     }
-    Ok(Response::new().add_messages(messages))
+
+    let mut response = Response::new();
+
+    if !messages.is_empty() {
+        response = response.add_messages(messages);
+    }
+
+    Ok(response)
 }
 
 fn _load_target_messages(
@@ -326,8 +356,21 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    // withdraw all orai to owner
+    let config = CONFIG.load(deps.storage)?;
+    let orai_balance = deps.querier.query_balance(env.contract.address, "orai")?;
+
+    if orai_balance.amount.is_zero() {
+        return Ok(Response::default());
+    }
+
+    let bank_msg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: config.owner.to_string(),
+        amount: vec![orai_balance],
+    });
+
+    Ok(Response::default().add_message(bank_msg))
 }
 
 #[cfg(test)]

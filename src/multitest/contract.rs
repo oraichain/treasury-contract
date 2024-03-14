@@ -6,6 +6,8 @@ use cw_multi_test::{App, AppResponse, ContractWrapper, Executor};
 
 use crate::contract::{execute, instantiate, migrate, query};
 
+use super::tests::StargateAccpetingModuleApp;
+
 #[cw_serde]
 pub struct TreasuryContract(Addr);
 
@@ -14,18 +16,19 @@ impl TreasuryContract {
         &self.0
     }
 
-    pub fn store_code(app: &mut App) -> u64 {
+    pub fn store_code(app: &mut StargateAccpetingModuleApp) -> u64 {
         let contract = ContractWrapper::new(execute, instantiate, query).with_migrate(migrate);
         app.store_code(Box::new(contract))
     }
 
     #[track_caller]
     pub fn instantiate(
-        app: &mut App,
+        app: &mut StargateAccpetingModuleApp,
         sender: &Addr,
         owner: &Addr,
         distribute_token: &Addr,
         admin: Option<String>,
+        router: &Addr,
         init_distribution_targets: Vec<DistributeTarget>,
     ) -> Result<Self, ContractError> {
         let code_id = Self::store_code(app);
@@ -37,7 +40,7 @@ impl TreasuryContract {
                 distribute_token: distribute_token.clone(),
                 init_distribution_targets,
                 approver: Some(vec![Addr::unchecked(admin.clone().unwrap())]),
-                router: Some(Addr::unchecked("router")),
+                router: Some(router.clone()),
             },
             &[],
             "treasury contract",
@@ -51,7 +54,7 @@ impl TreasuryContract {
     pub fn distribute_token(
         &self,
         sender: &Addr,
-        app: &mut App,
+        app: &mut StargateAccpetingModuleApp,
         amount_distribute: Uint128,
     ) -> Result<AppResponse, ContractError> {
         app.execute_contract(

@@ -1,7 +1,8 @@
+use super::tests::StargateAccpetingModuleApp;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Binary, Response, StdResult};
 use cw20::Cw20ReceiveMsg;
-use cw_multi_test::{App, ContractWrapper, Executor};
+use cw_multi_test::{ContractWrapper, Executor};
 
 #[cw_serde]
 pub enum MockExecuteMsg {
@@ -27,7 +28,7 @@ impl MockPingPongContract {
         &self.0
     }
 
-    pub fn store_code(app: &mut App) -> u64 {
+    pub fn store_code(app: &mut StargateAccpetingModuleApp) -> u64 {
         let contract = ContractWrapper::new(
             |_, _, _, msg: MockExecuteMsg| -> StdResult<Response> {
                 match msg {
@@ -42,7 +43,7 @@ impl MockPingPongContract {
         app.store_code(Box::new(contract))
     }
 
-    pub fn instantiate(app: &mut App, sender: &Addr) -> Self {
+    pub fn instantiate(app: &mut StargateAccpetingModuleApp, sender: &Addr) -> Self {
         let code_id = Self::store_code(app);
         let contract_addr = app
             .instantiate_contract(

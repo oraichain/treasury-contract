@@ -329,10 +329,7 @@ fn _load_target_messages(
         .load(storage)?
         .iter()
         .map(|target| -> Result<WasmMsg, ContractError> {
-            let transfer_amount = amount_distribute
-                .checked_mul(Uint128::from(target.weight))
-                .map_err(|e| ContractError::Std(StdError::Overflow { source: e }))?
-                .div(Uint128::from(100u64));
+            let transfer_amount = amount_distribute * Decimal::percent(target.weight as u64);
 
             let msg = match target.clone().msg_hook {
                 None => WasmMsg::Execute {

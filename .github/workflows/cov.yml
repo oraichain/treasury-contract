@@ -3,33 +3,10 @@ name: Code Coverage
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  base_branch_cov:
-    name: run-base-coverage
-    runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin:develop
-      options: --security-opt seccomp=unconfined
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.base_ref }}
-
-      - name: Generate code coverage
-        run: |
-          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov --output-dir coverage
-
-      - name: Upload code coverage for ref branch
-        uses: actions/upload-artifact@v3
-        with:
-          name: ref-lcov.info
-          path: ./coverage/lcov.info
-
   checks:
     environment: BARECHECK_GITHUB_APP_TOKEN
     name: check-coverage
     runs-on: ubuntu-latest
-    needs: base_branch_cov
     container:
       image: xd009642/tarpaulin:develop
       options: --security-opt seccomp=unconfined
@@ -44,15 +21,29 @@ jobs:
 
       - name: Generate code coverage
         run: |
-          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov --output-dir coverage
+          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out xml
 
-      - name: Generate code coverage report
-        id: code-coverage
-        uses: barecheck/code-coverage-action@v1
+      - name: Produce the coverage report
+        uses: insightsengineering/coverage-action@v2
         with:
-          barecheck-github-app-token: ${{ secrets.BARECHECK_GITHUB_APP_TOKEN }}
-          lcov-file: "./coverage/lcov.info"
-          base-lcov-file: "./lcov.info"
-          send-summary-comment: true
-          show-annotations: "warning" # Possible options warning|error
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Path to the Cobertura XML report.
+          path: ./cobertura.xml
+          # Minimum total coverage, if you want to the
+          # workflow to enforce it as a standard.
+          # This has no effect if the `fail` arg is set to `false`.
+          threshold: 80.123
+          # Fail the workflow if the minimum code coverage
+          # reuqirements are not satisfied.
+          fail: false
+          # Publish the rendered output as a PR comment
+          publish: true
+          # Create a coverage diff report.
+          diff: true
+          # Branch to diff against.
+          # Compare the current coverage to the coverage
+          # determined on this branch.
+          diff-branch: test/cov-report
+          # This is where the coverage reports for the
+          # `diff-branch` are stored.
+          coverage-summary-title: "Code Coverage Summary"
+          new-uncovered-statements-failure: true

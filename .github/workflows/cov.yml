@@ -1,0 +1,60 @@
+name: Code Coverage
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  base_branch_cov:
+    name: run-base-coverage
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.base_ref }}
+
+      - name: Generate code coverage
+        run: |
+          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov --output-dir coverage
+
+      - name: Upload code coverage for ref branch
+        uses: actions/upload-artifact@v3
+        with:
+          name: ref-lcov.info
+          path: ./coverage/lcov.info
+
+  checks:
+    environment: BARECHECK_GITHUB_APP_TOKEN
+    name: check-coverage
+    runs-on: ubuntu-latest
+    needs: base_branch_cov
+    container:
+      image: xd009642/tarpaulin:develop
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download code coverage report from base branch
+        uses: actions/download-artifact@v3
+        with:
+          name: ref-lcov.info
+          path: ./coverage/lcov.info
+
+      - name: Generate code coverage
+        run: |
+          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov
+
+      - name: Generate code coverage report
+        id: code-coverage
+        uses: barecheck/code-coverage-action@v1
+        with:
+          barecheck-github-app-token: ${{ secrets.BARECHECK_GITHUB_APP_TOKEN }}
+          lcov-file: "./lcov.info"
+          base-lcov-file: "./coverage/lcov.info"
+          minimum-ratio: 0 # Fails Github action once code coverage is decreasing
+          send-summary-comment: true
+          show-annotations: "warning" # Possible options warning|error
+          github-token: ${{ secrets.GITHUB_TOKEN }}

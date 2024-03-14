@@ -41,19 +41,18 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: ref-lcov.info
-          path: ./coverage/lcov.info
 
       - name: Generate code coverage
         run: |
-          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov
+          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out Lcov --output-dir coverage
 
       - name: Generate code coverage report
         id: code-coverage
         uses: barecheck/code-coverage-action@v1
         with:
           barecheck-github-app-token: ${{ secrets.BARECHECK_GITHUB_APP_TOKEN }}
-          lcov-file: "./lcov.info"
-          base-lcov-file: "./coverage/lcov.info"
+          lcov-file: "./coverage/lcov.info"
+          base-lcov-file: "./lcov.info"
           minimum-ratio: 0 # Fails Github action once code coverage is decreasing
           send-summary-comment: true
           show-annotations: "warning" # Possible options warning|error

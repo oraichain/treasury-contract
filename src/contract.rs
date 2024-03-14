@@ -4,7 +4,7 @@ use crate::msg::{
     CollectFeeRequirement, ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg,
     MigrateMsg, QueryMsg,
 };
-use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
+use crate::state::{Config, DistributeTarget, CONFIG, CONFIG_TEST, DISTRIBUTION_TARGETS};
 use crate::ContractError;
 use cosmos_sdk_proto::cosmos::authz::v1beta1::MsgExec;
 use cosmos_sdk_proto::cosmos::bank::v1beta1::MsgSend;
@@ -118,6 +118,11 @@ fn execute_update_config(
         approver,
         router: config.router,
     };
+
+    let config_test_result = CONFIG_TEST.may_load(deps.storage)?;
+    if config_test_result.is_none() {
+        CONFIG_TEST.save(deps.storage, &new_config)?;
+    }
 
     CONFIG.save(deps.storage, &new_config)?;
 

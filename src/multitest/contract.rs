@@ -2,7 +2,7 @@ use crate::msg::{ExecuteMsg, InstantiateMsg};
 use crate::{error::ContractError, state::DistributeTarget};
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128};
-use cw_multi_test::{App, AppResponse, ContractWrapper, Executor};
+use cw_multi_test::{AppResponse, ContractWrapper, Executor};
 
 use crate::contract::{execute, instantiate, migrate, query};
 

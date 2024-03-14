@@ -2,16 +2,15 @@ use crate::msg::{CollectFeeRequirement, ExecuteMsg};
 use crate::{state::DistributeTarget, ContractError};
 use cosmwasm_std::testing::MockApi;
 use cosmwasm_std::{
-    coin, to_binary, Addr, Empty, Event, GovMsg, IbcMsg, IbcQuery, MemoryStorage, Uint128,
+    coin, to_json_binary, Addr, Empty, Event, GovMsg, IbcMsg, IbcQuery, MemoryStorage, Uint128,
 };
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
 use cw_multi_test::{
-    error, AcceptingModule, App, AppBuilder, BankKeeper, DistributionKeeper, Executor,
-    FailingModule, Router, StakeKeeper, StargateAcceptingModule, StargateMsg, StargateQuery,
-    WasmKeeper,
+    AcceptingModule, App, AppBuilder, BankKeeper, DistributionKeeper, Executor, FailingModule,
+    StakeKeeper, StargateAcceptingModule, StargateMsg, StargateQuery, WasmKeeper,
 };
 use oraiswap::asset::AssetInfo;
-use oraiswap::router::{self, SwapOperation};
+use oraiswap::router::SwapOperation;
 
 use super::contract_ping_pong_mock::MockPingPongContract;
 use super::{
@@ -99,7 +98,7 @@ fn mock_app() -> (
             DistributeTarget {
                 weight: 40,
                 addr: ping_pong.addr().clone(),
-                msg_hook: Some(to_binary(&Cw20Hook::Ping {}).unwrap()),
+                msg_hook: Some(to_json_binary(&Cw20Hook::Ping {}).unwrap()),
             },
             DistributeTarget {
                 weight: 60,
@@ -234,7 +233,7 @@ fn test_collect_fees_balance_distribute() {
             &ExecuteMsg::CollectFees {
                 collect_fee_requirements: vec![
                     CollectFeeRequirement {
-                        swapOperations: vec![SwapOperation::OraiSwap {
+                        swap_operations: vec![SwapOperation::OraiSwap {
                             offer_asset_info: AssetInfo::NativeToken {
                                 denom: "orai".into(),
                             },
@@ -245,7 +244,7 @@ fn test_collect_fees_balance_distribute() {
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
-                        swapOperations: vec![SwapOperation::OraiSwap {
+                        swap_operations: vec![SwapOperation::OraiSwap {
                             offer_asset_info: AssetInfo::Token {
                                 contract_addr: cw20.addr().clone(),
                             },

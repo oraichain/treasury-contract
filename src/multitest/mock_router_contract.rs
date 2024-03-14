@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, DepsMut, Env, MessageInfo, Response, StdResult, WasmMsg,
+    to_json_binary, Addr, Binary, DepsMut, Env, MessageInfo, Response, StdResult, WasmMsg,
 };
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 use cw_multi_test::{ContractWrapper, Executor};
@@ -33,7 +33,7 @@ const USDC: Item<Addr> = Item::new("usdc");
 fn instantiate(
     deps: DepsMut,
     _env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     msg: MockInstantiateMsg,
 ) -> StdResult<Response> {
     USDC.save(deps.storage, &msg.usdc)?;
@@ -52,15 +52,15 @@ impl MockRouter {
                     RouterExecuteMsg::Receive(Cw20ReceiveMsg {
                         sender,
                         amount,
-                        msg,
+                        msg: _,
                     }) => {
                         // return usdc to sender
                         let usdc = USDC.load(deps.storage)?;
                         let msg = WasmMsg::Execute {
                             contract_addr: usdc.to_string(),
-                            msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                            msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                                 recipient: sender.to_string(),
-                                amount: amount,
+                                amount,
                             })?,
                             funds: vec![],
                         };
@@ -73,15 +73,15 @@ impl MockRouter {
                             .add_attribute("amount", amount.to_string()))
                     }
                     RouterExecuteMsg::ExecuteSwapOperations {
-                        operations,
-                        minimum_receive,
+                        operations: _,
+                        minimum_receive: _,
                         to,
                     } => {
                         let usdc = USDC.load(deps.storage)?;
                         // return usdc to sender
                         let msg = WasmMsg::Execute {
                             contract_addr: usdc.to_string(),
-                            msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                            msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                                 recipient: to.unwrap().to_string(),
                                 amount: info.funds[0].amount,
                             })?,

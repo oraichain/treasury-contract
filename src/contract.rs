@@ -12,7 +12,7 @@ use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
 use cosmos_sdk_proto::traits::{Message, MessageExt};
 
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, BankMsg, CosmosMsg, StdError, Storage, Uint128, WasmMsg,
+    entry_point, to_json_binary, Addr, BankMsg, CosmosMsg, StdError, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
@@ -205,7 +205,7 @@ fn execute_collect_fees(
         messages = collect_fee_requirements
             .iter()
             .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
-                let operations = requirement.clone().swapOperations;
+                let operations = requirement.clone().swap_operations;
 
                 let offer_asset = match &operations[0] {
                     SwapOperation::OraiSwap {
@@ -220,10 +220,6 @@ fn execute_collect_fees(
                 };
 
                 // final ask asset should be distribute token
-                deps.api.debug(&format!(
-                    "final_ask_asset:{:?}, distribute_asset_info:{:?}",
-                    final_ask_asset, distribute_asset_info
-                ));
                 if distribute_asset_info != final_ask_asset.clone() {
                     return Ok(None);
                 }
@@ -237,11 +233,11 @@ fn execute_collect_fees(
                     AssetInfo::Token { contract_addr } => {
                         Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: contract_addr.clone().into(),
-                            msg: to_binary(&Cw20ExecuteMsg::SendFrom {
+                            msg: to_json_binary(&Cw20ExecuteMsg::SendFrom {
                                 owner: approver.to_string(),
                                 contract: router_unwrap.to_string(),
                                 amount: balance.unwrap(),
-                                msg: to_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
+                                msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
                                     operations,
                                     minimum_receive: requirement.minimum_receive,
                                     to: Some(env.contract.address.clone().to_string()),
@@ -265,17 +261,22 @@ fn execute_collect_fees(
                             return Ok(None);
                         }
 
-                        let mut send = MsgSend::default();
-                        send.from_address = approver.to_string();
-                        send.to_address = env.contract.address.to_string();
+                        let mut send = MsgSend {
+                            from_address: approver.to_string(),
+                            to_address: env.contract.address.to_string(),
+                            ..MsgSend::default()
+                        };
                         let coin = Coin {
                             denom: denom.clone(),
                             amount: swap_amount.unwrap().to_string(),
                         };
                         send.amount = vec![coin];
 
-                        let mut exec = MsgExec::default();
-                        exec.grantee = env.contract.address.to_string();
+                        let mut exec = MsgExec {
+                            grantee: env.contract.address.to_string(),
+                            ..MsgExec::default()
+                        };
+
                         exec.msgs = vec![send.to_any().unwrap()];
 
                         let exec_bytes: Vec<u8> = exec.encode_to_vec();
@@ -287,7 +288,7 @@ fn execute_collect_fees(
 
                         let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: router_unwrap.to_string(),
-                            msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
+                            msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                                 operations: operations.clone(),
                                 to: Some(env.contract.address.clone()),
                                 minimum_receive: requirement.minimum_receive,
@@ -311,8 +312,6 @@ fn execute_collect_fees(
     }
 
     let mut response = Response::new();
-
-    deps.api.debug(&format!("messages:{:?}", &messages));
 
     if !messages.is_empty() {
         response = response.add_messages(messages);
@@ -338,7 +337,7 @@ fn _load_target_messages(
             let msg = match target.clone().msg_hook {
                 None => WasmMsg::Execute {
                     contract_addr: distribute_token.clone().into(),
-                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                         recipient: target.clone().addr.into(),
                         amount: transfer_amount,
                     })?,
@@ -346,7 +345,7 @@ fn _load_target_messages(
                 },
                 Some(msg_hook) => WasmMsg::Execute {
                     contract_addr: distribute_token.clone().into(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
+                    msg: to_json_binary(&Cw20ExecuteMsg::Send {
                         contract: target.clone().addr.into(),
                         amount: transfer_amount,
                         msg: msg_hook,
@@ -362,8 +361,8 @@ fn _load_target_messages(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&ConfigResponse(CONFIG.load(deps.storage)?)),
-        QueryMsg::DistributeTargets {} => to_binary(&DistributeTargetsResponse(
+        QueryMsg::Config {} => to_json_binary(&ConfigResponse(CONFIG.load(deps.storage)?)),
+        QueryMsg::DistributeTargets {} => to_json_binary(&DistributeTargetsResponse(
             DISTRIBUTION_TARGETS.load(deps.storage)?,
         )),
     }
@@ -392,7 +391,7 @@ mod tests {
     use crate::msg::{ConfigResponse, DistributeTargetsResponse, InstantiateMsg, QueryMsg};
     use crate::state::{Config, DistributeTarget};
     use cosmwasm_std::testing::{MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{from_binary, OwnedDeps, Uint128};
+    use cosmwasm_std::{from_json, OwnedDeps, Uint128};
     use cosmwasm_std::{
         testing::{mock_dependencies, mock_env, mock_info},
         Addr,
@@ -406,7 +405,7 @@ mod tests {
             DistributeTarget {
                 weight: 40,
                 addr: Addr::unchecked("target1"),
-                msg_hook: Some(to_binary(&"hook1").unwrap()),
+                msg_hook: Some(to_json_binary(&"hook1").unwrap()),
             },
             DistributeTarget {
                 weight: 60,
@@ -427,7 +426,7 @@ mod tests {
         let _res = instantiate(deps.as_mut(), mock_env(), mock_info, msg).unwrap();
 
         let config_binary = query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap();
-        let config = from_binary::<ConfigResponse>(&config_binary).unwrap();
+        let config = from_json::<ConfigResponse>(&config_binary).unwrap();
 
         assert_eq!(
             config,
@@ -443,7 +442,7 @@ mod tests {
             query(deps.as_ref(), mock_env(), QueryMsg::DistributeTargets {}).unwrap();
 
         let distribute_targets =
-            from_binary::<DistributeTargetsResponse>(&distribute_targets_binary).unwrap();
+            from_json::<DistributeTargetsResponse>(&distribute_targets_binary).unwrap();
 
         assert_eq!(
             distribute_targets,
@@ -475,17 +474,17 @@ mod tests {
             vec![
                 WasmMsg::Execute {
                     contract_addr: "distribute_token".into(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
+                    msg: to_json_binary(&Cw20ExecuteMsg::Send {
                         contract: "target1".into(),
                         amount: Uint128::from(400u64),
-                        msg: to_binary(&"hook1").unwrap()
+                        msg: to_json_binary(&"hook1").unwrap()
                     })
                     .unwrap(),
                     funds: vec![]
                 },
                 WasmMsg::Execute {
                     contract_addr: "distribute_token".into(),
-                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                         recipient: "target2".into(),
                         amount: Uint128::from(600u64)
                     })

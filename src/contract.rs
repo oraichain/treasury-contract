@@ -205,17 +205,35 @@ fn execute_collect_fees(
         messages = collect_fee_requirements
             .iter()
             .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
-                let balance = requirement
-                    .asset
-                    .query_pool(&deps.querier, approver.clone())
-                    .ok();
+                let operations = requirement.clone().swapOperations;
+
+                let offer_asset = match &operations[0] {
+                    SwapOperation::OraiSwap {
+                        offer_asset_info, ..
+                    } => offer_asset_info,
+                };
+
+                let distribute_asset_info =
+                    asset_info_from_string(deps.api, config.distribute_token.clone().into());
+                let final_ask_asset = match &operations[operations.len() - 1] {
+                    SwapOperation::OraiSwap { ask_asset_info, .. } => ask_asset_info,
+                };
+
+                // final ask asset should be distribute token
+                deps.api.debug(&format!(
+                    "final_ask_asset:{:?}, distribute_asset_info:{:?}",
+                    final_ask_asset, distribute_asset_info
+                ));
+                if distribute_asset_info != final_ask_asset.clone() {
+                    return Ok(None);
+                }
+
+                let balance = offer_asset.query_pool(&deps.querier, approver.clone()).ok();
                 if balance.is_none() || balance.unwrap().is_zero() {
                     return Ok(None);
                 }
-                let distribute_asset_info =
-                    asset_info_from_string(deps.api, config.distribute_token.clone().into());
                 // Assume that the owner approve infinite allowance to the contract
-                match &requirement.asset {
+                match &offer_asset {
                     AssetInfo::Token { contract_addr } => {
                         Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: contract_addr.clone().into(),
@@ -224,10 +242,7 @@ fn execute_collect_fees(
                                 contract: router_unwrap.to_string(),
                                 amount: balance.unwrap(),
                                 msg: to_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
-                                    operations: vec![SwapOperation::OraiSwap {
-                                        offer_asset_info: requirement.asset.clone(),
-                                        ask_asset_info: distribute_asset_info.clone(),
-                                    }],
+                                    operations,
                                     minimum_receive: requirement.minimum_receive,
                                     to: Some(env.contract.address.clone().to_string()),
                                 })?,
@@ -273,10 +288,7 @@ fn execute_collect_fees(
                         let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: router_unwrap.to_string(),
                             msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
-                                operations: vec![SwapOperation::OraiSwap {
-                                    offer_asset_info: requirement.asset.clone(),
-                                    ask_asset_info: distribute_asset_info,
-                                }],
+                                operations: operations.clone(),
                                 to: Some(env.contract.address.clone()),
                                 minimum_receive: requirement.minimum_receive,
                             })?,
@@ -299,6 +311,8 @@ fn execute_collect_fees(
     }
 
     let mut response = Response::new();
+
+    deps.api.debug(&format!("messages:{:?}", &messages));
 
     if !messages.is_empty() {
         response = response.add_messages(messages);

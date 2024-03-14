@@ -55,14 +55,17 @@ impl MockRouter {
                         msg,
                     }) => {
                         // return usdc to sender
+                        let usdc = USDC.load(deps.storage)?;
                         let msg = WasmMsg::Execute {
-                            contract_addr: USDC.load(deps.storage)?.to_string(),
+                            contract_addr: usdc.to_string(),
                             msg: to_binary(&Cw20ExecuteMsg::Transfer {
                                 recipient: sender.to_string(),
                                 amount: amount,
                             })?,
                             funds: vec![],
                         };
+
+                        deps.api.debug(format!("usdc: {}", usdc).as_str());
                         Ok(Response::new()
                             .add_message(msg)
                             .add_attribute("action", "execute_swap_operations")
@@ -74,15 +77,17 @@ impl MockRouter {
                         minimum_receive,
                         to,
                     } => {
+                        let usdc = USDC.load(deps.storage)?;
                         // return usdc to sender
                         let msg = WasmMsg::Execute {
-                            contract_addr: USDC.load(deps.storage)?.to_string(),
+                            contract_addr: usdc.to_string(),
                             msg: to_binary(&Cw20ExecuteMsg::Transfer {
                                 recipient: to.unwrap().to_string(),
                                 amount: info.funds[0].amount,
                             })?,
                             funds: vec![],
                         };
+                        deps.api.debug(format!("usdc: {}", usdc).as_str());
                         Ok(Response::new()
                             .add_message(msg)
                             .add_attribute("action", "execute_swap_operations")

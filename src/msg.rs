@@ -1,6 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Uint128};
-use oraiswap::asset::AssetInfo;
+use oraiswap::{asset::AssetInfo, router::SwapOperation};
 
 use crate::state::{Config, DistributeTarget};
 
@@ -33,7 +33,7 @@ pub enum ExecuteMsg {
 
 #[cw_serde]
 pub struct CollectFeeRequirement {
-    pub asset: AssetInfo,
+    pub swapOperations: Vec<SwapOperation>,
     pub minimum_receive: Option<Uint128>,
 }
 

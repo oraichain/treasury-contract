@@ -11,7 +11,7 @@ use cw_multi_test::{
     WasmKeeper,
 };
 use oraiswap::asset::AssetInfo;
-use oraiswap::router;
+use oraiswap::router::{self, SwapOperation};
 
 use super::contract_ping_pong_mock::MockPingPongContract;
 use super::{
@@ -41,6 +41,7 @@ fn mock_app() -> (
     MockCw20Contract,
     MockPingPongContract,
     MockRouter,
+    MockCw20Contract,
 ) {
     let builder = AppBuilder::default();
 
@@ -57,6 +58,14 @@ fn mock_app() -> (
                         vec![coin(INITAL_BALANCE, "orai"), coin(INITAL_BALANCE, "atom")],
                     )
                     .unwrap();
+                router
+                    .bank
+                    .init_balance(
+                        storage,
+                        &Addr::unchecked("not_owner"),
+                        vec![coin(INITAL_BALANCE, "orai"), coin(INITAL_BALANCE, "atom")],
+                    )
+                    .unwrap()
             });
 
     let owner = Addr::unchecked("owner");
@@ -66,12 +75,14 @@ fn mock_app() -> (
             .unwrap();
 
     let ping_pong = MockPingPongContract::instantiate(&mut app, &owner);
+
     let not_owner = Addr::unchecked("not_owner");
+
     let usdc = MockCw20Contract::instantiate(
         &mut app,
         &not_owner,
         &not_owner,
-        Uint128::from(INITAL_BALANCE * 2),
+        Uint128::from(INITAL_BALANCE * 10),
     )
     .unwrap();
 
@@ -81,7 +92,7 @@ fn mock_app() -> (
         &mut app,
         &owner,
         &owner,
-        cw20.addr(),
+        usdc.addr(),
         Some(owner.clone().into()),
         router.addr(),
         vec![
@@ -99,14 +110,30 @@ fn mock_app() -> (
     )
     .unwrap();
 
+    // send token to router and owner
     usdc.transfer(
         &mut app,
         &not_owner,
-        treasury.addr(),
+        router.addr(),
         Uint128::from(INITAL_BALANCE * 2),
     );
 
-    (app, treasury, cw20, ping_pong, router)
+    usdc.transfer(
+        &mut app,
+        &not_owner,
+        &owner,
+        Uint128::from(INITAL_BALANCE * 2),
+    );
+
+    // send all token of approver to treasury, but leave 1 token for fee  = authz.MsgExec(bank.MsgSend)
+    app.send_tokens(
+        not_owner,
+        treasury.addr().clone(),
+        &[coin(999999999999000000, "orai")],
+    )
+    .unwrap();
+
+    (app, treasury, cw20, ping_pong, router, usdc)
 }
 
 #[test]
@@ -114,19 +141,17 @@ fn test_distribute_happy_path() {
     let owner = Addr::unchecked("owner");
     let finance = Addr::unchecked("finance");
     let distribute_amount = Uint128::from(100u64);
-    let (mut app, treasury, cw20, ping_pong, router) = mock_app();
-    let owner_balance: BalanceResponse = cw20.query_balance(&app, &owner);
-
-    println!("owner balance: {:?}", owner_balance);
-
-    cw20.transfer(
+    let (mut app, treasury, _cw20, ping_pong, _router, usdc) = mock_app();
+    // assert_eq
+    usdc.transfer(
         &mut app,
         &owner,
         &Addr::from(treasury.clone()),
         Uint128::from(100u64),
     );
 
-    let treasury_balance: BalanceResponse = cw20.query_balance(&app, treasury.addr());
+    let treasury_balance: BalanceResponse = usdc.query_balance(&app, treasury.addr());
+
     assert_eq!(treasury_balance.balance, distribute_amount);
 
     let res = treasury
@@ -142,11 +167,11 @@ fn test_distribute_happy_path() {
     // assert the ping event is emitted
     assert!(!ping_event.is_empty());
 
-    let treasury_balance: BalanceResponse = cw20.query_balance(&app, treasury.addr());
+    let treasury_balance: BalanceResponse = usdc.query_balance(&app, treasury.addr());
     assert_eq!(treasury_balance.balance, Uint128::zero());
-    let ping_pong_balance: BalanceResponse = cw20.query_balance(&app, ping_pong.addr());
+    let ping_pong_balance: BalanceResponse = usdc.query_balance(&app, ping_pong.addr());
     assert_eq!(ping_pong_balance.balance, Uint128::from(40u128));
-    let finance: BalanceResponse = cw20.query_balance(&app, &finance);
+    let finance: BalanceResponse = usdc.query_balance(&app, &finance);
     assert_eq!(finance.balance, Uint128::from(60u128));
 }
 
@@ -157,7 +182,7 @@ fn test_exceed_balance_distribute() {
     let _finance = Addr::unchecked("finance");
     let distribute_amount = Uint128::from(100u64);
 
-    let (mut app, treasury, cw20, _ping_pong, router) = mock_app();
+    let (mut app, treasury, cw20, _ping_pong, ..) = mock_app();
     let owner_balance: BalanceResponse = cw20.query_balance(&app, &owner);
 
     println!("owner balance: {:?}", owner_balance);
@@ -187,45 +212,47 @@ fn test_collect_fees_balance_distribute() {
     // arrange
     let owner = Addr::unchecked("owner");
     let _finance = Addr::unchecked("finance");
-    let (mut app, treasury, cw20, _ping_pong, _router) = mock_app();
+    let (mut app, treasury, cw20, _ping_pong, router, usdc) = mock_app();
 
     app.execute_contract(
         owner.clone(),
         cw20.addr().clone(),
         &Cw20ExecuteMsg::IncreaseAllowance {
             spender: treasury.addr().to_string(),
-            amount: Uint128::from(1000000000000000000u128),
+            amount: Uint128::from(INITAL_BALANCE),
             expires: None,
         },
         &[],
     )
     .unwrap();
 
-    // send all token of approver to treasury, but leave 1 token for fee  = authz.MsgExec(bank.MsgSend)
-    app.send_tokens(
-        owner.clone(),
-        treasury.addr().clone(),
-        &[coin(999999999999000000, "orai")],
-    )
-    .unwrap();
-
     //act
-    let response = app
+    let _response = app
         .execute_contract(
             owner.clone(),
             treasury.addr().clone(),
             &ExecuteMsg::CollectFees {
                 collect_fee_requirements: vec![
                     CollectFeeRequirement {
-                        asset: AssetInfo::NativeToken {
-                            denom: "orai".into(),
-                        },
+                        swapOperations: vec![SwapOperation::OraiSwap {
+                            offer_asset_info: AssetInfo::NativeToken {
+                                denom: "orai".into(),
+                            },
+                            ask_asset_info: AssetInfo::Token {
+                                contract_addr: usdc.addr().clone(),
+                            },
+                        }],
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
-                        asset: AssetInfo::Token {
-                            contract_addr: cw20.addr().clone(),
-                        },
+                        swapOperations: vec![SwapOperation::OraiSwap {
+                            offer_asset_info: AssetInfo::Token {
+                                contract_addr: cw20.addr().clone(),
+                            },
+                            ask_asset_info: AssetInfo::Token {
+                                contract_addr: usdc.addr().clone(),
+                            },
+                        }],
                         minimum_receive: None,
                     },
                 ],
@@ -233,4 +260,15 @@ fn test_collect_fees_balance_distribute() {
             &[],
         )
         .unwrap();
+
+    // assert
+    let balance = cw20.query_balance(&app, router.addr());
+    let native_balance = app.wrap().query_balance(router.addr(), "orai").unwrap();
+    assert_eq!(
+        native_balance.amount,
+        Uint128::from(INITAL_BALANCE)
+            .checked_sub(Uint128::from(1000000u128))
+            .unwrap()
+    );
+    assert_eq!(balance.balance, Uint128::from(INITAL_BALANCE));
 }

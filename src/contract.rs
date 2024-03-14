@@ -230,6 +230,19 @@ fn execute_collect_fees(
                 // Assume that the owner approve infinite allowance to the contract
                 match &offer_asset {
                     AssetInfo::Token { contract_addr } => {
+                        // transfer from only if distribute asset equals to offer_asset
+                        if distribute_asset_info == offer_asset.clone() {
+                            return Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
+                                contract_addr: contract_addr.clone().into(),
+                                msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom {
+                                    owner: approver.to_string(),
+                                    recipient: env.contract.address.to_string(),
+                                    amount: balance.unwrap(),
+                                })?,
+                                funds: vec![],
+                            })]));
+                        }
+
                         Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: contract_addr.clone().into(),
                             msg: to_json_binary(&Cw20ExecuteMsg::SendFrom {
@@ -239,7 +252,7 @@ fn execute_collect_fees(
                                 msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
                                     operations,
                                     minimum_receive: requirement.minimum_receive,
-                                    to: Some(env.contract.address.clone().to_string()),
+                                    to: Some(env.contract.address.to_string()),
                                 })?,
                             })?,
                             funds: vec![],

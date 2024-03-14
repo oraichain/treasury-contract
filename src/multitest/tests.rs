@@ -225,6 +225,18 @@ fn test_collect_fees_balance_distribute() {
     )
     .unwrap();
 
+    app.execute_contract(
+        owner.clone(),
+        usdc.addr().clone(),
+        &Cw20ExecuteMsg::IncreaseAllowance {
+            spender: treasury.addr().to_string(),
+            amount: Uint128::from(INITAL_BALANCE * 10),
+            expires: None,
+        },
+        &[],
+    )
+    .unwrap();
+
     //act
     let _response = app
         .execute_contract(
@@ -254,6 +266,17 @@ fn test_collect_fees_balance_distribute() {
                         }],
                         minimum_receive: None,
                     },
+                    CollectFeeRequirement {
+                        swap_operations: vec![SwapOperation::OraiSwap {
+                            offer_asset_info: AssetInfo::Token {
+                                contract_addr: usdc.addr().clone(),
+                            },
+                            ask_asset_info: AssetInfo::Token {
+                                contract_addr: usdc.addr().clone(),
+                            },
+                        }],
+                        minimum_receive: None,
+                    },
                 ],
             },
             &[],
@@ -263,6 +286,7 @@ fn test_collect_fees_balance_distribute() {
     // assert
     let balance = cw20.query_balance(&app, router.addr());
     let native_balance = app.wrap().query_balance(router.addr(), "orai").unwrap();
+    let usdc_treasury_balance = usdc.query_balance(&app, treasury.addr());
     assert_eq!(
         native_balance.amount,
         Uint128::from(INITAL_BALANCE)
@@ -270,4 +294,10 @@ fn test_collect_fees_balance_distribute() {
             .unwrap()
     );
     assert_eq!(balance.balance, Uint128::from(INITAL_BALANCE));
+    assert_eq!(
+        usdc_treasury_balance.balance,
+        Uint128::from(INITAL_BALANCE * 4)
+            .checked_sub(Uint128::from(1000000u128))
+            .unwrap()
+    );
 }

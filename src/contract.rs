@@ -12,7 +12,7 @@ use cosmos_sdk_proto::cosmos::base::v1beta1::Coin;
 use cosmos_sdk_proto::traits::{Message, MessageExt};
 
 use cosmwasm_std::{
-    entry_point, to_json_binary, Addr, BankMsg, CosmosMsg, Decimal, Storage, Uint128, WasmMsg,
+    entry_point, to_json_binary, Addr, CosmosMsg, Decimal, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw2::set_contract_version;
@@ -365,7 +365,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     Ok(Response::default())
 }
 

@@ -36,7 +36,7 @@ jobs:
           # Branch to diff against.
           # Compare the current coverage to the coverage
           # determined on this branch.
-          diff-branch: test/cov-report
+          diff-branch: master
           # This is where the coverage reports for the
           # `diff-branch` are stored.
           # Branch is created if it doesn't already exist'.

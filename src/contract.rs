@@ -182,7 +182,7 @@ fn execute_distribute(
     balance
         .balance
         .checked_sub(amount_distribute)
-        .map_err(|_| ContractError::ExceedContractBalance {})?;
+        .map_err(|_| ContractError::TestError {})?;
 
     let messages = _load_target_messages(deps.storage, amount_distribute, config.distribute_token)?;
     Ok(Response::new()

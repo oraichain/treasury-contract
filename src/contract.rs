@@ -366,20 +366,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // withdraw all orai to owner
-    let config = CONFIG.load(deps.storage)?;
-    let orai_balance = deps.querier.query_balance(env.contract.address, "orai")?;
-
-    if orai_balance.amount.is_zero() {
-        return Ok(Response::default());
-    }
-
-    let bank_msg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: config.owner.to_string(),
-        amount: vec![orai_balance],
-    });
-
-    Ok(Response::default().add_message(bank_msg))
+    Ok(Response::default())
 }
 
 #[cfg(test)]

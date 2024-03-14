@@ -1,11 +1,40 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
+use cosmwasm_std::{Addr, Uint128};
+
+use crate::state::{Config, DistributeTarget};
 
 #[cw_serde]
-pub struct InstantiateMsg {}
+pub struct InstantiateMsg {
+    pub owner: Addr,
+    pub distribute_token: Addr,
+    pub init_distribution_targets: Vec<DistributeTarget>,
+}
 
 #[cw_serde]
-pub enum ExecuteMsg {}
+pub enum ExecuteMsg {
+    UpdateConfig {
+        owner: Option<Addr>,
+        distribute_token: Option<Addr>,
+    },
+    UpdateDistributeTarget {
+        distribute_targets: Vec<DistributeTarget>,
+    },
+    Distribute {
+        amount_distribute: Uint128,
+    },
+}
 
 #[cw_serde]
 #[derive(QueryResponses)]
-pub enum QueryMsg {}
+pub enum QueryMsg {
+    #[returns(ConfigResponse)]
+    Config {},
+    #[returns(DistributeTargetsResponse)]
+    DistributeTargets {},
+}
+
+#[cw_serde]
+pub struct ConfigResponse(pub Config);
+
+#[cw_serde]
+pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);

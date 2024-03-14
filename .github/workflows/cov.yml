@@ -1,6 +1,6 @@
 name: Code Coverage
 
-on: [push, pull_request, workflow_dispatch]
+on: [pull_request, workflow_dispatch]
 
 jobs:
   checks:
@@ -36,7 +36,7 @@ jobs:
           # Branch to diff against.
           # Compare the current coverage to the coverage
           # determined on this branch.
-          diff-branch: test/cov-report
+          diff-branch: "master"
           # This is where the coverage reports for the
           # `diff-branch` are stored.
           coverage-summary-title: "Code Coverage Summary"

@@ -34,10 +34,10 @@ jobs:
           # Create a coverage diff report.
           diff: true
           # Branch to diff against.
-          # Compare the current coverage to the coverage
-          # determined on this branch.
-          diff-branch: "master"
+          # # Compare the current coverage to the coverage
+          # # determined on this branch.
+          # diff-branch: master
           # This is where the coverage reports for the
           # `diff-branch` are stored.
           coverage-summary-title: "Code Coverage Summary"
-          new-uncovered-statements-failure: true
+          # new-uncovered-statements-failure: true

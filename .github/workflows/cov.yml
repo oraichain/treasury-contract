@@ -4,7 +4,6 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   checks:
-    environment: BARECHECK_GITHUB_APP_TOKEN
     name: check-coverage
     runs-on: ubuntu-latest
     container:
@@ -13,11 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
-      - name: Download code coverage report from base branch
-        uses: actions/download-artifact@v3
-        with:
-          name: ref-lcov.info
 
       - name: Generate code coverage
         run: |

@@ -5,12 +5,11 @@ use cosmwasm_std::{
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 use cw_multi_test::{ContractWrapper, Executor};
 use cw_storage_plus::Item;
-use oraiswap::router::ExecuteMsg as RouterExecuteMsg;
+use oraiswap::router::{self, ExecuteMsg as RouterExecuteMsg};
 
 use super::tests::StargateAccpetingModuleApp;
 
-#[cw_serde]
-pub enum MockQueryMsg {}
+pub type MockQueryMsg = router::QueryMsg;
 
 #[cw_serde]
 pub enum Cw20Hook {
@@ -99,7 +98,17 @@ impl MockRouter {
                 }
             },
             instantiate,
-            |_, _, _: MockQueryMsg| -> StdResult<Binary> { Ok(Binary::default()) },
+            |_, _, msg: MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    router::QueryMsg::SimulateSwapOperations {
+                        offer_amount,
+                        operations: _,
+                    } => Ok(to_json_binary(&router::SimulateSwapOperationsResponse {
+                        amount: offer_amount,
+                    })?),
+                    _ => Ok(Binary::default()),
+                }
+            },
         );
         app.store_code(Box::new(contract))
     }

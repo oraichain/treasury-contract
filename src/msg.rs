@@ -28,13 +28,13 @@ pub enum ExecuteMsg {
     },
     CollectFees {
         collect_fee_requirements: Vec<CollectFeeRequirement>,
+        slippage: Option<Uint128>,
     },
 }
 
 #[cw_serde]
 pub struct CollectFeeRequirement {
     pub swap_operations: Vec<SwapOperation>,
-    pub minimum_receive: Option<Uint128>,
 }
 
 #[cw_serde]

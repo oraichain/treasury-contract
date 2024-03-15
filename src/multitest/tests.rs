@@ -1,4 +1,5 @@
 use crate::contract::execute_collect_fees;
+use crate::helpers::calculate_minium_receive;
 use crate::msg::{CollectFeeRequirement, ExecuteMsg};
 use crate::state::{Config, CONFIG};
 use crate::{state::DistributeTarget, ContractError};
@@ -225,11 +226,11 @@ fn test_execute_collect_fees_router_approver_not_set() {
     let result = execute_collect_fees(
         deps.as_mut(),
         mock_env(),
-        mock_info("sender", &vec![]),
+        mock_info("sender", &[]),
         vec![CollectFeeRequirement {
             swap_operations: vec![],
-            minimum_receive: None,
         }],
+        Some(Uint128::from(0u128)),
     )
     .unwrap_err();
     assert_eq!(result, ContractError::RouterAndApproverNotSet {});
@@ -249,11 +250,11 @@ fn test_execute_collect_fees_router_approver_not_set() {
     let result = execute_collect_fees(
         deps.as_mut(),
         mock_env(),
-        mock_info("sender", &vec![]),
+        mock_info("sender", &[]),
         vec![CollectFeeRequirement {
             swap_operations: vec![],
-            minimum_receive: None,
         }],
+        Some(Uint128::from(0u128)),
     )
     .unwrap_err();
     assert_eq!(result, ContractError::RouterAndApproverNotSet {});
@@ -306,7 +307,6 @@ fn test_collect_fees_balance_distribute() {
                                 contract_addr: usdc.addr().clone(),
                             },
                         }],
-                        minimum_receive: None,
                     },
                     CollectFeeRequirement {
                         swap_operations: vec![SwapOperation::OraiSwap {
@@ -317,7 +317,6 @@ fn test_collect_fees_balance_distribute() {
                                 contract_addr: usdc.addr().clone(),
                             },
                         }],
-                        minimum_receive: None,
                     },
                     CollectFeeRequirement {
                         swap_operations: vec![SwapOperation::OraiSwap {
@@ -328,9 +327,9 @@ fn test_collect_fees_balance_distribute() {
                                 contract_addr: usdc.addr().clone(),
                             },
                         }],
-                        minimum_receive: None,
                     },
                 ],
+                slippage: Some(Uint128::from(2u128)),
             },
             &[],
         )
@@ -340,6 +339,7 @@ fn test_collect_fees_balance_distribute() {
     let balance = cw20.query_balance(&app, router.addr());
     let native_balance = app.wrap().query_balance(router.addr(), "orai").unwrap();
     let usdc_treasury_balance = usdc.query_balance(&app, treasury.addr());
+
     assert_eq!(
         native_balance.amount,
         Uint128::from(INITAL_BALANCE)
@@ -351,6 +351,38 @@ fn test_collect_fees_balance_distribute() {
         usdc_treasury_balance.balance,
         Uint128::from(INITAL_BALANCE * 4)
             .checked_sub(Uint128::from(1000000u128))
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_calculate_minium_receive() {
+    let (app, _treasury, _cw20, _ping_pong, router, usdc) = mock_app();
+    let offer_amount = Uint128::from(100u64);
+    let slippage = Uint128::from(2u128);
+
+    let result = calculate_minium_receive(
+        app.wrap(),
+        router.addr().clone(),
+        offer_amount,
+        vec![SwapOperation::OraiSwap {
+            offer_asset_info: AssetInfo::NativeToken {
+                denom: "orai".into(),
+            },
+            ask_asset_info: AssetInfo::Token {
+                contract_addr: usdc.addr().clone(),
+            },
+        }],
+        slippage,
+    )
+    .unwrap();
+
+    assert_eq!(
+        result,
+        offer_amount
+            .checked_mul(Uint128::from(98u128))
+            .unwrap()
+            .checked_div(Uint128::from(100u128))
             .unwrap()
     );
 }

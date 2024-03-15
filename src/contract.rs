@@ -1,5 +1,6 @@
 #[cfg(not(feature = "library"))]
 use crate::helpers::asset_info_from_string;
+use crate::helpers::calculate_minium_receive;
 use crate::msg::{
     CollectFeeRequirement, ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg,
     MigrateMsg, QueryMsg,
@@ -95,7 +96,8 @@ pub fn execute(
         }
         ExecuteMsg::CollectFees {
             collect_fee_requirements,
-        } => execute_collect_fees(deps, env, info, collect_fee_requirements),
+            slippage,
+        } => execute_collect_fees(deps, env, info, collect_fee_requirements, slippage),
     }
 }
 
@@ -191,12 +193,16 @@ pub fn execute_collect_fees(
     env: Env,
     _info: MessageInfo,
     collect_fee_requirements: Vec<CollectFeeRequirement>,
+    slippage: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
     if config.approver.is_none() || config.router.is_none() {
         return Err(ContractError::RouterAndApproverNotSet {});
     }
+    // DEFAULT 5% slippage
+    let slippage = slippage.unwrap_or(Uint128::from(5u128));
+
     let router_unwrap = config.router.unwrap();
     let approver_unwrap = config.approver.unwrap();
     // create a new variable for better code readability
@@ -216,6 +222,7 @@ pub fn execute_collect_fees(
 
                 let distribute_asset_info =
                     asset_info_from_string(deps.api, config.distribute_token.clone().into());
+
                 let final_ask_asset = match &operations[operations.len() - 1] {
                     SwapOperation::OraiSwap { ask_asset_info, .. } => ask_asset_info,
                 };
@@ -228,6 +235,15 @@ pub fn execute_collect_fees(
                 let balance = offer_asset
                     .query_pool(&deps.querier, approver.clone())
                     .unwrap_or_default();
+
+                let mut minimum_receive = calculate_minium_receive(
+                    deps.querier,
+                    router_unwrap.clone(),
+                    balance,
+                    operations.clone(),
+                    slippage,
+                )?;
+
                 if balance.is_zero() {
                     return Ok(None);
                 }
@@ -255,7 +271,7 @@ pub fn execute_collect_fees(
                                 amount: balance,
                                 msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
                                     operations,
-                                    minimum_receive: requirement.minimum_receive,
+                                    minimum_receive: Some(minimum_receive),
                                     to: Some(fees_receiver.to_string()),
                                 })?,
                             })?,
@@ -270,6 +286,13 @@ pub fn execute_collect_fees(
                             swap_amount = swap_amount
                                 .checked_sub(Uint128::from(1000000u128))
                                 .unwrap_or_default();
+                            minimum_receive = calculate_minium_receive(
+                                deps.querier,
+                                router_unwrap.clone(),
+                                swap_amount,
+                                operations.clone(),
+                                slippage,
+                            )?;
                         }
 
                         if swap_amount.is_zero() {
@@ -307,7 +330,7 @@ pub fn execute_collect_fees(
                             msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                                 operations: operations.clone(),
                                 to: Some(fees_receiver.clone()),
-                                minimum_receive: requirement.minimum_receive,
+                                minimum_receive: Some(minimum_receive),
                             })?,
                             funds: vec![cosmwasm_std::Coin {
                                 denom: denom.clone(),

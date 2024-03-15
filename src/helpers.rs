@@ -27,7 +27,7 @@ pub fn calculate_minium_receive(
             router_address,
             &router::QueryMsg::SimulateSwapOperations {
                 offer_amount,
-                operations: operations.clone(),
+                operations,
             },
         )?
         .amount;

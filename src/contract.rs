@@ -494,4 +494,118 @@ mod tests {
             ]
         )
     }
+
+    #[test]
+    fn test_execute_update_config() {
+        let mut deps = _instantiate_deps();
+
+        let msg = ExecuteMsg::UpdateConfig {
+            owner: Some(Addr::unchecked("new_owner")),
+            distribute_token: Some(Addr::unchecked("new_distribute_token")),
+            approver: Some(vec![Addr::unchecked("approver2")]),
+        };
+
+        // act
+        execute(deps.as_mut(), mock_env(), mock_info("owner", &[]), msg).unwrap();
+
+        let raw_config = query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap();
+        let config = from_json::<ConfigResponse>(&raw_config).unwrap();
+
+        // assert
+        assert_eq!(config.0.owner, Addr::unchecked("new_owner"));
+        assert_eq!(
+            config.0.distribute_token,
+            Addr::unchecked("new_distribute_token")
+        );
+        assert_eq!(config.0.approver, Some(vec![Addr::unchecked("approver2")]));
+    }
+
+    #[test]
+    fn test_execute_update_distribute_targets() {
+        let mut deps = _instantiate_deps();
+
+        let init_distribution_targets = vec![
+            DistributeTarget {
+                weight: 40,
+                addr: Addr::unchecked("target3"),
+                msg_hook: Some(to_json_binary(&"hook1").unwrap()),
+            },
+            DistributeTarget {
+                weight: 60,
+                addr: Addr::unchecked("target4"),
+                msg_hook: None,
+            },
+        ];
+
+        // act
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("owner", &[]),
+            ExecuteMsg::UpdateDistributeTarget {
+                distribute_targets: init_distribution_targets.clone(),
+            },
+        )
+        .unwrap();
+
+        let raw_distribute_targets =
+            query(deps.as_ref(), mock_env(), QueryMsg::DistributeTargets {}).unwrap();
+
+        let distribute_targets = from_json::<DistributeTargetsResponse>(&raw_distribute_targets)
+            .unwrap()
+            .0;
+
+        // assert
+        assert_eq!(distribute_targets[0], init_distribution_targets[0]);
+        assert_eq!(distribute_targets[1], init_distribution_targets[1]);
+    }
+
+    #[test]
+    fn test_function_authorize() {
+        let mut deps = _instantiate_deps();
+
+        // act
+        let distribute_unauthorized_err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("not_owner", &[]),
+            ExecuteMsg::Distribute {
+                amount_distribute: Uint128::from(1000u128),
+            },
+        )
+        .unwrap_err();
+
+        let update_config_unauthorized_err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("not_owner", &[]),
+            ExecuteMsg::UpdateConfig {
+                owner: None,
+                distribute_token: None,
+                approver: None,
+            },
+        )
+        .unwrap_err();
+
+        let update_distribute_target_unauthorized_err = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("not_owner", &[]),
+            ExecuteMsg::UpdateDistributeTarget {
+                distribute_targets: vec![],
+            },
+        )
+        .unwrap_err();
+
+        // assert
+        assert_eq!(distribute_unauthorized_err, ContractError::Unauthorized {});
+        assert_eq!(
+            update_config_unauthorized_err,
+            ContractError::Unauthorized {}
+        );
+        assert_eq!(
+            update_distribute_target_unauthorized_err,
+            ContractError::Unauthorized {}
+        );
+    }
 }

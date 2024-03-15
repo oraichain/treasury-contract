@@ -1,5 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Uint128};
+use oraiswap::router::SwapOperation;
 
 use crate::state::{Config, DistributeTarget};
 
@@ -7,6 +8,8 @@ use crate::state::{Config, DistributeTarget};
 pub struct InstantiateMsg {
     pub owner: Addr,
     pub distribute_token: Addr,
+    pub approver: Option<Vec<Addr>>,
+    pub router: Option<Addr>,
     pub init_distribution_targets: Vec<DistributeTarget>,
 }
 
@@ -15,6 +18,7 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<Addr>,
         distribute_token: Option<Addr>,
+        approver: Option<Vec<Addr>>,
     },
     UpdateDistributeTarget {
         distribute_targets: Vec<DistributeTarget>,
@@ -22,6 +26,15 @@ pub enum ExecuteMsg {
     Distribute {
         amount_distribute: Uint128,
     },
+    CollectFees {
+        collect_fee_requirements: Vec<CollectFeeRequirement>,
+    },
+}
+
+#[cw_serde]
+pub struct CollectFeeRequirement {
+    pub swap_operations: Vec<SwapOperation>,
+    pub minimum_receive: Option<Uint128>,
 }
 
 #[cw_serde]
@@ -38,3 +51,6 @@ pub struct ConfigResponse(pub Config);
 
 #[cw_serde]
 pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);
+
+#[cw_serde]
+pub struct MigrateMsg {}

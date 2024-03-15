@@ -1,0 +1,46 @@
+name: Code Coverage
+
+on: [pull_request, workflow_dispatch]
+
+jobs:
+  checks:
+    name: check-coverage
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Generate code coverage
+        run: |
+          cargo tarpaulin --skip-clean --ignore-tests --exclude-files src/bin/schema.rs --frozen --engine llvm --out xml
+
+      - name: Produce the coverage report
+        uses: insightsengineering/coverage-action@v2
+        with:
+          # Path to the Cobertura XML report.
+          path: ./cobertura.xml
+          # Minimum total coverage, if you want to the
+          # workflow to enforce it as a standard.
+          # This has no effect if the `fail` arg is set to `false`.
+          threshold: 90
+          # Fail the workflow if the minimum code coverage
+          # reuqirements are not satisfied.
+          fail: true
+          # Publish the rendered output as a PR comment
+          publish: true
+          # Create a coverage diff report.
+          diff: true
+          # Branch to diff against.
+          # Compare the current coverage to the coverage
+          # determined on this branch.
+          diff-branch: master
+          # This is where the coverage reports for the
+          # `diff-branch` are stored.
+          # Branch is created if it doesn't already exist'.
+          # diff-storage: _xml_coverage_reports
+          coverage-summary-title: "Code Coverage Summary"
+          new-uncovered-statements-failure: true
+          # new-uncovered-statements-failure: true

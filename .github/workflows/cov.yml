@@ -44,3 +44,4 @@ jobs:
           coverage-summary-title: "Code Coverage Summary"
           coverage-reduction-failure: true
           new-uncovered-statements-failure: true
+          # new-uncovered-statements-failure: true

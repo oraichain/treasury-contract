@@ -42,4 +42,5 @@ jobs:
           # Branch is created if it doesn't already exist'.
           # diff-storage: _xml_coverage_reports
           coverage-summary-title: "Code Coverage Summary"
+          coverage-reduction-failure: true
           new-uncovered-statements-failure: true

@@ -203,7 +203,7 @@ fn execute_collect_fees(
     let fees_receiver = env.contract.address;
     for approver in approver_unwrap {
         // build swap operations
-        messages = collect_fee_requirements
+        let approver_messages = collect_fee_requirements
             .iter()
             .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
                 let operations = requirement.clone().swap_operations;
@@ -319,12 +319,14 @@ fn execute_collect_fees(
                     }
                 }
             })
-            .filter_map(|msg| match msg {
-                Ok(Some(cosmos_msg)) => Some(cosmos_msg),
+            .filter_map(|msgs| match msgs {
+                Ok(Some(cosmos_msgs)) => Some(cosmos_msgs),
                 _ => None,
             })
             .flatten()
             .collect::<Vec<CosmosMsg>>();
+
+        messages.extend(approver_messages);
     }
 
     let mut response = Response::new();

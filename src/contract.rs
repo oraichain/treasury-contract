@@ -186,7 +186,7 @@ fn execute_distribute(
         .add_attribute("amount_distribute", amount_distribute.to_string()))
 }
 
-fn execute_collect_fees(
+pub fn execute_collect_fees(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,

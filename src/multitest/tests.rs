@@ -1,6 +1,8 @@
+use crate::contract::execute_collect_fees;
 use crate::msg::{CollectFeeRequirement, ExecuteMsg};
+use crate::state::{Config, CONFIG};
 use crate::{state::DistributeTarget, ContractError};
-use cosmwasm_std::testing::MockApi;
+use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi};
 use cosmwasm_std::{
     coin, to_json_binary, Addr, Empty, Event, GovMsg, IbcMsg, IbcQuery, MemoryStorage, Uint128,
 };
@@ -204,6 +206,57 @@ fn test_exceed_balance_distribute() {
 
     // assert
     assert_eq!(err, ContractError::ExceedContractBalance {});
+}
+
+#[test]
+fn test_execute_collect_fees_router_approver_not_set() {
+    let mut deps = mock_dependencies();
+    CONFIG
+        .save(
+            deps.as_mut().storage,
+            &Config {
+                owner: Addr::unchecked("owner"),
+                distribute_token: Addr::unchecked("token"),
+                router: None,
+                approver: None,
+            },
+        )
+        .unwrap();
+    let result = execute_collect_fees(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("sender", &vec![]),
+        vec![CollectFeeRequirement {
+            swap_operations: vec![],
+            minimum_receive: None,
+        }],
+    )
+    .unwrap_err();
+    assert_eq!(result, ContractError::RouterAndApproverNotSet {});
+
+    CONFIG
+        .save(
+            deps.as_mut().storage,
+            &Config {
+                owner: Addr::unchecked("owner"),
+                distribute_token: Addr::unchecked("token"),
+                router: None,
+                approver: Some(vec![Addr::unchecked("approver")]),
+            },
+        )
+        .unwrap();
+
+    let result = execute_collect_fees(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("sender", &vec![]),
+        vec![CollectFeeRequirement {
+            swap_operations: vec![],
+            minimum_receive: None,
+        }],
+    )
+    .unwrap_err();
+    assert_eq!(result, ContractError::RouterAndApproverNotSet {});
 }
 
 #[test]

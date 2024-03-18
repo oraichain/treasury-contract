@@ -10,7 +10,6 @@ pub struct Config {
     pub owner: Addr,
     pub distribute_token: Addr,
     pub router: Option<Addr>,
-    pub approver: Option<Vec<Addr>>,
 }
 
 #[cw_serde]

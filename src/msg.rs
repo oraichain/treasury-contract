@@ -8,7 +8,6 @@ use crate::state::{Config, DistributeTarget};
 pub struct InstantiateMsg {
     pub owner: Addr,
     pub distribute_token: Addr,
-    pub approver: Option<Vec<Addr>>,
     pub router: Option<Addr>,
     pub init_distribution_targets: Vec<DistributeTarget>,
 }
@@ -18,7 +17,6 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<Addr>,
         distribute_token: Option<Addr>,
-        approver: Option<Vec<Addr>>,
     },
     UpdateDistributeTarget {
         distribute_targets: Vec<DistributeTarget>,
@@ -33,6 +31,7 @@ pub enum ExecuteMsg {
 
 #[cw_serde]
 pub struct CollectFeeRequirement {
+    pub approver: Addr,
     pub swap_operations: Vec<SwapOperation>,
     pub minimum_receive: Option<Uint128>,
 }

@@ -35,21 +35,9 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    // check valid addr in apporver
-    let approver = match msg.approver {
-        Some(addrs) => {
-            let valid_addrs = addrs
-                .iter()
-                .map(|addr| -> StdResult<Addr> { deps.api.addr_validate(addr.as_str()) })
-                .collect::<StdResult<Vec<Addr>>>()?;
-            Some(valid_addrs)
-        }
-        None => None,
-    };
     let config = Config {
         owner: deps.api.addr_validate(msg.owner.as_str())?,
         distribute_token: msg.distribute_token,
-        approver,
         router: match msg.router {
             Some(addr) => Some(deps.api.addr_validate(addr.as_str())?),
             None => None,
@@ -85,8 +73,7 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             distribute_token,
-            approver,
-        } => execute_update_config(deps, env, info, owner, distribute_token, approver),
+        } => execute_update_config(deps, env, info, owner, distribute_token),
         ExecuteMsg::UpdateDistributeTarget { distribute_targets } => {
             execute_update_distribute_target(deps, env, info, distribute_targets)
         }
@@ -105,7 +92,6 @@ fn execute_update_config(
     info: MessageInfo,
     owner: Option<Addr>,
     distribute_token: Option<Addr>,
-    approver: Option<Vec<Addr>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     if config.owner != info.sender {
@@ -115,7 +101,6 @@ fn execute_update_config(
     let new_config = Config {
         owner: owner.unwrap_or(config.owner),
         distribute_token: distribute_token.unwrap_or(config.distribute_token),
-        approver,
         router: config.router,
     };
 
@@ -194,140 +179,139 @@ pub fn execute_collect_fees(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
-    if config.approver.is_none() || config.router.is_none() {
+    if config.router.is_none() {
         return Err(ContractError::RouterAndApproverNotSet {});
     }
     let router_unwrap = config.router.unwrap();
-    let approver_unwrap = config.approver.unwrap();
     // create a new variable for better code readability
     let fees_receiver = env.contract.address;
-    for approver in approver_unwrap {
-        // build swap operations
-        let approver_messages = collect_fee_requirements
-            .iter()
-            .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
-                let operations = requirement.clone().swap_operations;
+    // build swap operations
+    let approver_messages = collect_fee_requirements
+        .iter()
+        .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
+            let operations = requirement.clone().swap_operations;
 
-                let offer_asset = match &operations[0] {
-                    SwapOperation::OraiSwap {
-                        offer_asset_info, ..
-                    } => offer_asset_info,
-                };
+            let offer_asset = match &operations[0] {
+                SwapOperation::OraiSwap {
+                    offer_asset_info, ..
+                } => offer_asset_info,
+            };
 
-                let distribute_asset_info =
-                    asset_info_from_string(deps.api, config.distribute_token.clone().into());
-                let final_ask_asset = match &operations[operations.len() - 1] {
-                    SwapOperation::OraiSwap { ask_asset_info, .. } => ask_asset_info,
-                };
+            let distribute_asset_info =
+                asset_info_from_string(deps.api, config.distribute_token.clone().into());
 
-                // final ask asset should be distribute token
-                if distribute_asset_info != final_ask_asset.clone() {
-                    return Ok(None);
-                }
+            let final_ask_asset = match &operations[operations.len() - 1] {
+                SwapOperation::OraiSwap { ask_asset_info, .. } => ask_asset_info,
+            };
 
-                let balance = offer_asset
-                    .query_pool(&deps.querier, approver.clone())
-                    .unwrap_or_default();
-                if balance.is_zero() {
-                    return Ok(None);
-                }
-                // Assume that the owner approve infinite allowance to the contract
-                match &offer_asset {
-                    AssetInfo::Token { contract_addr } => {
-                        // transfer from only if distribute asset equals to offer_asset
-                        if distribute_asset_info == offer_asset.clone() {
-                            return Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: contract_addr.clone().into(),
-                                msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom {
-                                    owner: approver.to_string(),
-                                    recipient: fees_receiver.to_string(),
-                                    amount: balance,
-                                })?,
-                                funds: vec![],
-                            })]));
-                        }
+            // final ask asset should be distribute token
+            if distribute_asset_info != final_ask_asset.clone() {
+                return Ok(None);
+            }
 
-                        Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
+            let balance = offer_asset
+                .query_pool(&deps.querier, requirement.approver.clone())
+                .unwrap_or_default();
+
+            if balance.is_zero() {
+                return Ok(None);
+            }
+            // Assume that the owner approve infinite allowance to the contract
+            match &offer_asset {
+                AssetInfo::Token { contract_addr } => {
+                    // transfer from only if distribute asset equals to offer_asset
+                    if distribute_asset_info == offer_asset.clone() {
+                        return Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
                             contract_addr: contract_addr.clone().into(),
-                            msg: to_json_binary(&Cw20ExecuteMsg::SendFrom {
-                                owner: approver.to_string(),
-                                contract: router_unwrap.to_string(),
+                            msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom {
+                                owner: requirement.approver.to_string(),
+                                recipient: fees_receiver.to_string(),
                                 amount: balance,
-                                msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
-                                    operations,
-                                    minimum_receive: requirement.minimum_receive,
-                                    to: Some(fees_receiver.to_string()),
-                                })?,
                             })?,
                             funds: vec![],
-                        })]))
+                        })]));
                     }
-                    // handle native token
-                    AssetInfo::NativeToken { denom } => {
-                        let mut swap_amount = balance;
-                        if denom == "orai" {
-                            // Left 1 orai for transaction fee
-                            swap_amount = swap_amount
-                                .checked_sub(Uint128::from(1000000u128))
-                                .unwrap_or_default();
-                        }
 
-                        if swap_amount.is_zero() {
-                            return Ok(None);
-                        }
-
-                        let send = MsgSend {
-                            from_address: approver.to_string(),
-                            to_address: fees_receiver.to_string(),
-                            amount: vec![Coin {
-                                denom: denom.clone(),
-                                amount: swap_amount.to_string(),
-                            }],
-                        };
-                        let send_any_result = send.to_any();
-                        if send_any_result.is_err() {
-                            return Ok(None);
-                        }
-
-                        let stargate_value = Binary::from(
-                            MsgExec {
-                                grantee: fees_receiver.to_string(),
-                                msgs: vec![send_any_result.unwrap()],
-                            }
-                            .encode_to_vec(),
-                        );
-                        // transfer_from native token
-                        let stargate = CosmosMsg::Stargate {
-                            type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
-                            value: stargate_value,
-                        };
-
-                        let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: router_unwrap.to_string(),
-                            msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
-                                operations: operations.clone(),
-                                to: Some(fees_receiver.clone()),
+                    Ok(Some(vec![CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: contract_addr.clone().into(),
+                        msg: to_json_binary(&Cw20ExecuteMsg::SendFrom {
+                            owner: requirement.approver.to_string(),
+                            contract: router_unwrap.to_string(),
+                            amount: balance,
+                            msg: to_json_binary(&Cw20RouterHookMsg::ExecuteSwapOperations {
+                                operations,
                                 minimum_receive: requirement.minimum_receive,
+                                to: Some(fees_receiver.to_string()),
                             })?,
-                            funds: vec![cosmwasm_std::Coin {
-                                denom: denom.clone(),
-                                amount: swap_amount,
-                            }],
-                        });
-
-                        Ok(Some(vec![stargate, wasm_swap]))
-                    }
+                        })?,
+                        funds: vec![],
+                    })]))
                 }
-            })
-            .filter_map(|msgs| match msgs {
-                Ok(Some(cosmos_msgs)) => Some(cosmos_msgs),
-                _ => None,
-            })
-            .flatten()
-            .collect::<Vec<CosmosMsg>>();
+                // handle native token
+                AssetInfo::NativeToken { denom } => {
+                    let mut swap_amount = balance;
+                    if denom == "orai" {
+                        // Left 1 orai for transaction fee
+                        swap_amount = swap_amount
+                            .checked_sub(Uint128::from(1000000u128))
+                            .unwrap_or_default();
+                    }
 
-        messages.extend(approver_messages);
-    }
+                    if swap_amount.is_zero() {
+                        return Ok(None);
+                    }
+
+                    let send = MsgSend {
+                        from_address: requirement.approver.to_string(),
+                        to_address: fees_receiver.to_string(),
+                        amount: vec![Coin {
+                            denom: denom.clone(),
+                            amount: swap_amount.to_string(),
+                        }],
+                    };
+                    let send_any_result = send.to_any();
+                    if send_any_result.is_err() {
+                        return Ok(None);
+                    }
+
+                    let stargate_value = Binary::from(
+                        MsgExec {
+                            grantee: fees_receiver.to_string(),
+                            msgs: vec![send_any_result.unwrap()],
+                        }
+                        .encode_to_vec(),
+                    );
+                    // transfer_from native token
+                    let stargate = CosmosMsg::Stargate {
+                        type_url: "/cosmos.authz.v1beta1.MsgExec".to_string(),
+                        value: stargate_value,
+                    };
+
+                    let wasm_swap = CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: router_unwrap.to_string(),
+                        msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
+                            operations: operations.clone(),
+                            to: Some(fees_receiver.clone()),
+                            minimum_receive: requirement.minimum_receive,
+                        })?,
+                        funds: vec![cosmwasm_std::Coin {
+                            denom: denom.clone(),
+                            amount: swap_amount,
+                        }],
+                    });
+
+                    Ok(Some(vec![stargate, wasm_swap]))
+                }
+            }
+        })
+        .filter_map(|msgs| match msgs {
+            Ok(Some(cosmos_msgs)) => Some(cosmos_msgs),
+            _ => None,
+        })
+        .flatten()
+        .collect::<Vec<CosmosMsg>>();
+
+    messages.extend(approver_messages);
 
     let mut response = Response::new();
 
@@ -420,7 +404,6 @@ mod tests {
             owner: Addr::unchecked("owner"),
             distribute_token: Addr::unchecked("distribute_token"),
             init_distribution_targets: init_distribution_targets.clone(),
-            approver: Some(vec![Addr::unchecked("approver1")]),
             router: Some(Addr::unchecked("router")),
         };
 
@@ -435,7 +418,6 @@ mod tests {
             ConfigResponse(Config {
                 owner: Addr::unchecked("owner"),
                 distribute_token: Addr::unchecked("distribute_token"),
-                approver: Some(vec![Addr::unchecked("approver1")]),
                 router: Some(Addr::unchecked("router")),
             })
         );
@@ -504,7 +486,6 @@ mod tests {
         let msg = ExecuteMsg::UpdateConfig {
             owner: Some(Addr::unchecked("new_owner")),
             distribute_token: Some(Addr::unchecked("new_distribute_token")),
-            approver: Some(vec![Addr::unchecked("approver2")]),
         };
 
         // act
@@ -519,7 +500,6 @@ mod tests {
             config.0.distribute_token,
             Addr::unchecked("new_distribute_token")
         );
-        assert_eq!(config.0.approver, Some(vec![Addr::unchecked("approver2")]));
     }
 
     #[test]
@@ -584,7 +564,6 @@ mod tests {
             ExecuteMsg::UpdateConfig {
                 owner: None,
                 distribute_token: None,
-                approver: None,
             },
         )
         .unwrap_err();

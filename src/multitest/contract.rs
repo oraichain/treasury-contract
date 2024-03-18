@@ -40,6 +40,7 @@ impl TreasuryContract {
                 distribute_token: distribute_token.clone(),
                 init_distribution_targets,
                 router: Some(router.clone()),
+                executors: vec![owner.clone()],
             },
             &[],
             "treasury contract",

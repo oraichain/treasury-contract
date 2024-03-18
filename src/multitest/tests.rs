@@ -1,10 +1,11 @@
-use crate::contract::execute_collect_fees;
-use crate::msg::{CollectFeeRequirement, ExecuteMsg};
-use crate::state::{Config, CONFIG};
+use crate::contract::{execute_collect_fees, query};
+use crate::msg::{CollectFeeRequirement, ExecuteMsg, QueryMsg};
+use crate::state::{Config, CONFIG, EXECUTORS};
 use crate::{state::DistributeTarget, ContractError};
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi};
 use cosmwasm_std::{
-    coin, to_json_binary, Addr, Empty, Event, GovMsg, IbcMsg, IbcQuery, MemoryStorage, Uint128,
+    coin, from_json, to_json_binary, Addr, Empty, Event, GovMsg, IbcMsg, IbcQuery, MemoryStorage,
+    Uint128,
 };
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
 use cw_multi_test::{
@@ -221,6 +222,21 @@ fn test_execute_collect_fees_router_approver_not_set() {
             },
         )
         .unwrap();
+    EXECUTORS
+        .save(deps.as_mut().storage, &Addr::unchecked("sender"), &true)
+        .unwrap();
+
+    let res_binary = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::IsExecutor {
+            addr: Addr::unchecked("sender"),
+        },
+    )
+    .unwrap();
+
+    assert!(from_json::<bool>(&res_binary).unwrap());
+
     let result = execute_collect_fees(
         deps.as_mut(),
         mock_env(),
@@ -233,7 +249,11 @@ fn test_execute_collect_fees_router_approver_not_set() {
     )
     .unwrap_err();
     assert_eq!(result, ContractError::RouterAndApproverNotSet {});
+}
 
+#[test]
+fn test_execute_collect_fees_unauthorize() {
+    let mut deps = mock_dependencies();
     CONFIG
         .save(
             deps.as_mut().storage,
@@ -248,7 +268,7 @@ fn test_execute_collect_fees_router_approver_not_set() {
     let result = execute_collect_fees(
         deps.as_mut(),
         mock_env(),
-        mock_info("sender", &vec![]),
+        mock_info("owner", &[]),
         vec![CollectFeeRequirement {
             approver: Addr::unchecked("owner"),
             swap_operations: vec![],
@@ -256,7 +276,8 @@ fn test_execute_collect_fees_router_approver_not_set() {
         }],
     )
     .unwrap_err();
-    assert_eq!(result, ContractError::RouterAndApproverNotSet {});
+
+    assert_eq!(result, ContractError::Unauthorized {});
 }
 
 #[test]

@@ -218,7 +218,6 @@ fn test_execute_collect_fees_router_approver_not_set() {
                 owner: Addr::unchecked("owner"),
                 distribute_token: Addr::unchecked("token"),
                 router: None,
-                approver: None,
             },
         )
         .unwrap();
@@ -227,6 +226,7 @@ fn test_execute_collect_fees_router_approver_not_set() {
         mock_env(),
         mock_info("sender", &vec![]),
         vec![CollectFeeRequirement {
+            approver: Addr::unchecked("owner"),
             swap_operations: vec![],
             minimum_receive: None,
         }],
@@ -241,7 +241,6 @@ fn test_execute_collect_fees_router_approver_not_set() {
                 owner: Addr::unchecked("owner"),
                 distribute_token: Addr::unchecked("token"),
                 router: None,
-                approver: Some(vec![Addr::unchecked("approver")]),
             },
         )
         .unwrap();
@@ -251,6 +250,7 @@ fn test_execute_collect_fees_router_approver_not_set() {
         mock_env(),
         mock_info("sender", &vec![]),
         vec![CollectFeeRequirement {
+            approver: Addr::unchecked("owner"),
             swap_operations: vec![],
             minimum_receive: None,
         }],
@@ -298,6 +298,7 @@ fn test_collect_fees_balance_distribute() {
             &ExecuteMsg::CollectFees {
                 collect_fee_requirements: vec![
                     CollectFeeRequirement {
+                        approver: Addr::unchecked("owner"),
                         swap_operations: vec![SwapOperation::OraiSwap {
                             offer_asset_info: AssetInfo::NativeToken {
                                 denom: "orai".into(),
@@ -309,6 +310,7 @@ fn test_collect_fees_balance_distribute() {
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
+                        approver: Addr::unchecked("owner"),
                         swap_operations: vec![SwapOperation::OraiSwap {
                             offer_asset_info: AssetInfo::Token {
                                 contract_addr: cw20.addr().clone(),
@@ -320,6 +322,7 @@ fn test_collect_fees_balance_distribute() {
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
+                        approver: Addr::unchecked("owner"),
                         swap_operations: vec![SwapOperation::OraiSwap {
                             offer_asset_info: AssetInfo::Token {
                                 contract_addr: usdc.addr().clone(),

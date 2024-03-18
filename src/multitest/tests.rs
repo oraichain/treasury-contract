@@ -1,4 +1,4 @@
-use crate::contract::{execute_collect_fees, query};
+use crate::contract::{execute, execute_collect_fees, query};
 use crate::msg::{CollectFeeRequirement, ExecuteMsg, QueryMsg};
 use crate::state::{Config, CONFIG, EXECUTORS};
 use crate::{state::DistributeTarget, ContractError};
@@ -264,6 +264,18 @@ fn test_execute_collect_fees_unauthorize() {
             },
         )
         .unwrap();
+    let err = execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("spender", &[]),
+        ExecuteMsg::UpdateExecutors {
+            executors: vec![Addr::unchecked("executor")],
+            permission: true,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err, ContractError::Unauthorized {});
 
     let result = execute_collect_fees(
         deps.as_mut(),

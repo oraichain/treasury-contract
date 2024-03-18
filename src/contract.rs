@@ -98,6 +98,9 @@ pub fn execute(
             executors,
             permission,
         } => {
+            if info.sender != CONFIG.load(deps.storage)?.owner {
+                return Err(ContractError::Unauthorized {});
+            }
             let valid_executors = executors
                 .iter()
                 .map(|executor| deps.api.addr_validate(executor.as_str()))

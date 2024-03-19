@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Binary};
-use cw_storage_plus::Item;
+use cw_storage_plus::{Item, Map};
 
 const CONFIG_KEY: &str = "config";
 const DISTRIBUTION_TARGET: &str = "distribution_target";
@@ -21,3 +21,4 @@ pub struct DistributeTarget {
 
 pub const CONFIG: Item<Config> = Item::new(CONFIG_KEY);
 pub const DISTRIBUTION_TARGETS: Item<Vec<DistributeTarget>> = Item::new(DISTRIBUTION_TARGET);
+pub const EXECUTORS: Map<&Addr, bool> = Map::new("executors");

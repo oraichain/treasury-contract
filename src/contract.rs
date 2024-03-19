@@ -4,7 +4,7 @@ use crate::msg::{
     CollectFeeRequirement, ConfigResponse, DistributeTargetsResponse, ExecuteMsg, InstantiateMsg,
     MigrateMsg, QueryMsg,
 };
-use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS};
+use crate::state::{Config, DistributeTarget, CONFIG, DISTRIBUTION_TARGETS, EXECUTORS};
 use crate::ContractError;
 use cosmos_sdk_proto::cosmos::authz::v1beta1::MsgExec;
 use cosmos_sdk_proto::cosmos::bank::v1beta1::MsgSend;
@@ -59,6 +59,17 @@ pub fn instantiate(
         .collect::<Result<Vec<DistributeTarget>, ContractError>>()?;
 
     DISTRIBUTION_TARGETS.save(deps.storage, &valid_distribute_targets)?;
+
+    let valid_executors = msg
+        .executors
+        .iter()
+        .map(|executor| deps.api.addr_validate(executor.as_ref()))
+        .collect::<StdResult<Vec<Addr>>>()?;
+
+    valid_executors.iter().for_each(|executor| {
+        EXECUTORS.save(deps.storage, executor, &true).unwrap();
+    });
+
     Ok(Response::default())
 }
 
@@ -83,6 +94,26 @@ pub fn execute(
         ExecuteMsg::CollectFees {
             collect_fee_requirements,
         } => execute_collect_fees(deps, env, info, collect_fee_requirements),
+        ExecuteMsg::UpdateExecutors {
+            executors,
+            permission,
+        } => {
+            if info.sender != CONFIG.load(deps.storage)?.owner {
+                return Err(ContractError::Unauthorized {});
+            }
+            let valid_executors = executors
+                .iter()
+                .map(|executor| deps.api.addr_validate(executor.as_str()))
+                .collect::<StdResult<Vec<Addr>>>()?;
+
+            valid_executors.iter().for_each(|executor| {
+                EXECUTORS.save(deps.storage, executor, &permission).unwrap();
+            });
+
+            Ok(Response::new()
+                .add_attribute("action", "update_executors")
+                .add_attribute("permission", permission.to_string()))
+        }
     }
 }
 
@@ -174,11 +205,20 @@ fn execute_distribute(
 pub fn execute_collect_fees(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     collect_fee_requirements: Vec<CollectFeeRequirement>,
 ) -> Result<Response, ContractError> {
+    if !EXECUTORS
+        .load(deps.storage, &info.sender)
+        .unwrap_or_default()
+    {
+        return Err(ContractError::Unauthorized {});
+    }
+
     let config = CONFIG.load(deps.storage)?;
+
     let mut messages: Vec<CosmosMsg> = vec![];
+
     if config.router.is_none() {
         return Err(ContractError::RouterAndApproverNotSet {});
     }
@@ -364,6 +404,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::DistributeTargets {} => to_json_binary(&DistributeTargetsResponse(
             DISTRIBUTION_TARGETS.load(deps.storage)?,
         )),
+        QueryMsg::IsExecutor { addr } => {
+            to_json_binary(&EXECUTORS.load(deps.storage, &addr).unwrap_or_default())
+        }
     }
 }
 
@@ -405,6 +448,7 @@ mod tests {
             distribute_token: Addr::unchecked("distribute_token"),
             init_distribution_targets: init_distribution_targets.clone(),
             router: Some(Addr::unchecked("router")),
+            executors: vec![Addr::unchecked("owner"), Addr::unchecked("executor")],
         };
 
         let mock_info = mock_info("owner", &[]);

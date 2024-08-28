@@ -425,7 +425,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    config.router = Some(msg.new_router);
+    CONFIG.save(deps.storage, &config)?;
     Ok(Response::default())
 }
 

@@ -65,4 +65,6 @@ pub struct ConfigResponse(pub Config);
 pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);
 
 #[cw_serde]
-pub struct MigrateMsg {}
+pub struct MigrateMsg {
+    pub new_router: Addr,
+}

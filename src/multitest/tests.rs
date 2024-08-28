@@ -13,7 +13,9 @@ use cw_multi_test::{
     StakeKeeper, StargateAcceptingModule, StargateMsg, StargateQuery, WasmKeeper,
 };
 use oraiswap::asset::AssetInfo;
-use oraiswap::router::SwapOperation;
+use oraiswap::mixed_router::SwapOperation;
+use oraiswap_v3::percentage::Percentage;
+use oraiswap_v3::{FeeTier, PoolKey};
 
 use super::contract_ping_pong_mock::MockPingPongContract;
 use super::{
@@ -35,7 +37,7 @@ pub type StargateAccpetingModuleApp = App<
     AcceptingModule<StargateMsg, StargateQuery, Empty>,
 >;
 
-const INITAL_BALANCE: u128 = 1000000000000000000u128;
+const INITIAL_BALANCE: u128 = 1000000000000000000u128;
 
 fn mock_app() -> (
     StargateAccpetingModuleApp,
@@ -57,7 +59,7 @@ fn mock_app() -> (
                     .init_balance(
                         storage,
                         &Addr::unchecked("owner"),
-                        vec![coin(INITAL_BALANCE, "orai"), coin(INITAL_BALANCE, "atom")],
+                        vec![coin(INITIAL_BALANCE, "orai"), coin(INITIAL_BALANCE, "atom")],
                     )
                     .unwrap();
                 router
@@ -65,7 +67,7 @@ fn mock_app() -> (
                     .init_balance(
                         storage,
                         &Addr::unchecked("not_owner"),
-                        vec![coin(INITAL_BALANCE, "orai"), coin(INITAL_BALANCE, "atom")],
+                        vec![coin(INITIAL_BALANCE, "orai"), coin(INITIAL_BALANCE, "atom")],
                     )
                     .unwrap()
             });
@@ -73,7 +75,7 @@ fn mock_app() -> (
     let owner = Addr::unchecked("owner");
     let finance = Addr::unchecked("finance");
     let cw20 =
-        MockCw20Contract::instantiate(&mut app, &owner, &owner, Uint128::from(INITAL_BALANCE))
+        MockCw20Contract::instantiate(&mut app, &owner, &owner, Uint128::from(INITIAL_BALANCE))
             .unwrap();
 
     let ping_pong = MockPingPongContract::instantiate(&mut app, &owner);
@@ -84,7 +86,7 @@ fn mock_app() -> (
         &mut app,
         &not_owner,
         &not_owner,
-        Uint128::from(INITAL_BALANCE * 10),
+        Uint128::from(INITIAL_BALANCE * 10),
     )
     .unwrap();
 
@@ -117,14 +119,14 @@ fn mock_app() -> (
         &mut app,
         &not_owner,
         router.addr(),
-        Uint128::from(INITAL_BALANCE * 2),
+        Uint128::from(INITIAL_BALANCE * 2),
     );
 
     usdc.transfer(
         &mut app,
         &not_owner,
         &owner,
-        Uint128::from(INITAL_BALANCE * 2),
+        Uint128::from(INITIAL_BALANCE * 2),
     );
 
     // send all token of approver to treasury, but leave 1 token for fee  = authz.MsgExec(bank.MsgSend)
@@ -304,7 +306,7 @@ fn test_collect_fees_balance_distribute() {
         cw20.addr().clone(),
         &Cw20ExecuteMsg::IncreaseAllowance {
             spender: treasury.addr().to_string(),
-            amount: Uint128::from(INITAL_BALANCE),
+            amount: Uint128::from(INITIAL_BALANCE),
             expires: None,
         },
         &[],
@@ -316,7 +318,7 @@ fn test_collect_fees_balance_distribute() {
         usdc.addr().clone(),
         &Cw20ExecuteMsg::IncreaseAllowance {
             spender: treasury.addr().to_string(),
-            amount: Uint128::from(INITAL_BALANCE * 10),
+            amount: Uint128::from(INITIAL_BALANCE * 10),
             expires: None,
         },
         &[],
@@ -332,37 +334,46 @@ fn test_collect_fees_balance_distribute() {
                 collect_fee_requirements: vec![
                     CollectFeeRequirement {
                         approver: Addr::unchecked("owner"),
-                        swap_operations: vec![SwapOperation::OraiSwap {
-                            offer_asset_info: AssetInfo::NativeToken {
-                                denom: "orai".into(),
+                        swap_operations: vec![SwapOperation::SwapV3 {
+                            pool_key: PoolKey {
+                                token_x: "orai".into(),
+                                token_y: usdc.addr().to_string(),
+                                fee_tier: FeeTier {
+                                    fee: Percentage(3u64),
+                                    tick_spacing: 100,
+                                },
                             },
-                            ask_asset_info: AssetInfo::Token {
-                                contract_addr: usdc.addr().clone(),
-                            },
+                            x_to_y: true,
                         }],
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
                         approver: Addr::unchecked("owner"),
-                        swap_operations: vec![SwapOperation::OraiSwap {
-                            offer_asset_info: AssetInfo::Token {
-                                contract_addr: cw20.addr().clone(),
+                        swap_operations: vec![SwapOperation::SwapV3 {
+                            pool_key: PoolKey {
+                                token_x: cw20.addr().to_string(),
+                                token_y: usdc.addr().to_string(),
+                                fee_tier: FeeTier {
+                                    fee: Percentage(3u64),
+                                    tick_spacing: 100,
+                                },
                             },
-                            ask_asset_info: AssetInfo::Token {
-                                contract_addr: usdc.addr().clone(),
-                            },
+                            x_to_y: true,
                         }],
                         minimum_receive: None,
                     },
                     CollectFeeRequirement {
                         approver: Addr::unchecked("owner"),
-                        swap_operations: vec![SwapOperation::OraiSwap {
-                            offer_asset_info: AssetInfo::Token {
-                                contract_addr: usdc.addr().clone(),
+                        swap_operations: vec![SwapOperation::SwapV3 {
+                            pool_key: PoolKey {
+                                token_x: usdc.addr().to_string(),
+                                token_y: usdc.addr().to_string(),
+                                fee_tier: FeeTier {
+                                    fee: Percentage(3u64),
+                                    tick_spacing: 100,
+                                },
                             },
-                            ask_asset_info: AssetInfo::Token {
-                                contract_addr: usdc.addr().clone(),
-                            },
+                            x_to_y: true,
                         }],
                         minimum_receive: None,
                     },
@@ -378,14 +389,14 @@ fn test_collect_fees_balance_distribute() {
     let usdc_treasury_balance = usdc.query_balance(&app, treasury.addr());
     assert_eq!(
         native_balance.amount,
-        Uint128::from(INITAL_BALANCE)
+        Uint128::from(INITIAL_BALANCE)
             .checked_sub(Uint128::from(1000000u128))
             .unwrap()
     );
-    assert_eq!(balance.balance, Uint128::from(INITAL_BALANCE));
+    assert_eq!(balance.balance, Uint128::from(INITIAL_BALANCE));
     assert_eq!(
         usdc_treasury_balance.balance,
-        Uint128::from(INITAL_BALANCE * 4)
+        Uint128::from(INITIAL_BALANCE * 4)
             .checked_sub(Uint128::from(1000000u128))
             .unwrap()
     );

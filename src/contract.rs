@@ -18,7 +18,7 @@ use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult}
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg};
 use oraiswap::asset::AssetInfo;
-use oraiswap::router::{
+use oraiswap::mixed_router::{
     Cw20HookMsg as Cw20RouterHookMsg, ExecuteMsg as RouterExecuteMsg, SwapOperation,
 };
 
@@ -225,23 +225,35 @@ pub fn execute_collect_fees(
     let router_unwrap = config.router.unwrap();
     // create a new variable for better code readability
     let fees_receiver = env.contract.address;
+    // convert 1 times to asset info
+    let distribute_asset_info =
+        asset_info_from_string(deps.api, config.distribute_token.clone().into());
     // build swap operations
     let approver_messages = collect_fee_requirements
         .iter()
         .map(|requirement| -> StdResult<Option<Vec<CosmosMsg>>> {
             let operations = requirement.clone().swap_operations;
 
-            let offer_asset = match &operations[0] {
-                SwapOperation::OraiSwap {
-                    offer_asset_info, ..
-                } => offer_asset_info,
+            let offer_asset = if let SwapOperation::SwapV3 { pool_key, x_to_y } = &operations[0] {
+                if *x_to_y {
+                    asset_info_from_string(deps.api, pool_key.token_x.clone())
+                } else {
+                    asset_info_from_string(deps.api, pool_key.token_y.clone())
+                }
+            } else {
+                return Ok(None);
             };
 
-            let distribute_asset_info =
-                asset_info_from_string(deps.api, config.distribute_token.clone().into());
-
-            let final_ask_asset = match &operations[operations.len() - 1] {
-                SwapOperation::OraiSwap { ask_asset_info, .. } => ask_asset_info,
+            let final_ask_asset = if let SwapOperation::SwapV3 { pool_key, x_to_y } =
+                &operations[operations.len() - 1]
+            {
+                if *x_to_y {
+                    asset_info_from_string(deps.api, pool_key.token_y.clone())
+                } else {
+                    asset_info_from_string(deps.api, pool_key.token_x.clone())
+                }
+            } else {
+                return Ok(None);
             };
 
             // final ask asset should be distribute token
@@ -282,6 +294,7 @@ pub fn execute_collect_fees(
                                 operations,
                                 minimum_receive: requirement.minimum_receive,
                                 to: Some(fees_receiver.to_string()),
+                                affiliates: None,
                             })?,
                         })?,
                         funds: vec![],
@@ -333,6 +346,7 @@ pub fn execute_collect_fees(
                             operations: operations.clone(),
                             to: Some(fees_receiver.clone()),
                             minimum_receive: requirement.minimum_receive,
+                            affiliates: None,
                         })?,
                         funds: vec![cosmwasm_std::Coin {
                             denom: denom.clone(),

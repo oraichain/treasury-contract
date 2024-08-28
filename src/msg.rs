@@ -1,6 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Uint128};
-use oraiswap::router::SwapOperation;
+use oraiswap::mixed_router::SwapOperation;
 
 use crate::state::{Config, DistributeTarget};
 

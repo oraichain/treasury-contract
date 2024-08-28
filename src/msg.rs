@@ -1,6 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Uint128};
-use oraiswap::router::SwapOperation;
+use oraiswap::mixed_router::SwapOperation;
 
 use crate::state::{Config, DistributeTarget};
 
@@ -65,4 +65,6 @@ pub struct ConfigResponse(pub Config);
 pub struct DistributeTargetsResponse(pub Vec<DistributeTarget>);
 
 #[cw_serde]
-pub struct MigrateMsg {}
+pub struct MigrateMsg {
+    pub new_router: Addr,
+}

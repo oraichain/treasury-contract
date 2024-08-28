@@ -5,7 +5,7 @@ use cosmwasm_std::{
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 use cw_multi_test::{ContractWrapper, Executor};
 use cw_storage_plus::Item;
-use oraiswap::router::ExecuteMsg as RouterExecuteMsg;
+use oraiswap::mixed_router::ExecuteMsg as RouterExecuteMsg;
 
 use super::tests::StargateAccpetingModuleApp;
 
@@ -65,7 +65,6 @@ impl MockRouter {
                             funds: vec![],
                         };
 
-                        deps.api.debug(format!("usdc: {}", usdc).as_str());
                         Ok(Response::new()
                             .add_message(msg)
                             .add_attribute("action", "execute_swap_operations")
@@ -76,6 +75,7 @@ impl MockRouter {
                         operations: _,
                         minimum_receive: _,
                         to,
+                        affiliates: _,
                     } => {
                         let usdc = USDC.load(deps.storage)?;
                         // return usdc to sender
@@ -87,7 +87,7 @@ impl MockRouter {
                             })?,
                             funds: vec![],
                         };
-                        deps.api.debug(format!("usdc: {}", usdc).as_str());
+
                         Ok(Response::new()
                             .add_message(msg)
                             .add_attribute("action", "execute_swap_operations")
